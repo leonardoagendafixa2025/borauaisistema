@@ -1,0 +1,1 @@
+ALTER TABLE public.table_sessions ADD CONSTRAINT table_sessions_table_id_session_id_key UNIQUE (table_id, session_id);

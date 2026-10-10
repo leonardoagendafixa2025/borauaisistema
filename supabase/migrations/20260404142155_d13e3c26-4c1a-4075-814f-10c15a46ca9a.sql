@@ -1,0 +1,1 @@
+ALTER TABLE public.categories ADD COLUMN skip_kitchen boolean NOT NULL DEFAULT false;

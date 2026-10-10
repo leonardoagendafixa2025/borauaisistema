@@ -1,0 +1,1 @@
+ALTER TABLE public.waiter_calls REPLICA IDENTITY FULL;

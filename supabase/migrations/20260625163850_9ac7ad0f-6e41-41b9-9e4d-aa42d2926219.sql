@@ -1,0 +1,1 @@
+DROP POLICY IF EXISTS "User can assign own owner role" ON public.user_roles;

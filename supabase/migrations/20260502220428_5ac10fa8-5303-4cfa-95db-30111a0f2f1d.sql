@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.notify_master_event(text, jsonb) FROM PUBLIC, anon, authenticated;

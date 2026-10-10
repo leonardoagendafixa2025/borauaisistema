@@ -1,0 +1,2 @@
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS sla_alert_sent_at TIMESTAMP WITH TIME ZONE;
+CREATE INDEX IF NOT EXISTS idx_orders_sla_check ON public.orders (status, type, sla_alert_sent_at) WHERE status IN ('preparing','ready','delivering');

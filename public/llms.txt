@@ -1,0 +1,19 @@
+# Bora Uai
+
+> Sistema completo para bares, restaurantes e baladas: cardápio digital com QR Code, comanda eletrônica, KDS de cozinha, delivery, caixa, controle de estoque e modo balada com pedidos de música.
+
+Bora Uai é um SaaS brasileiro focado em food, bar e nightlife. Funciona no navegador, com PWAs para garçom e cozinha. Pagamentos do cliente são registrados (PIX, dinheiro, cartão) — o estabelecimento recebe direto. Teste grátis de 14 dias, sem cartão.
+
+## Pages
+
+- [Início](/): Visão geral do sistema, planos e funcionalidades.
+- [Preços](/precos): Planos Básico, Profissional e Premium, com FAQ.
+- [Cadastro](/cadastro): Criação de conta com 14 dias grátis.
+- [Central de Ajuda](/ajuda): Tutoriais e perguntas frequentes.
+- [Status](/status): Status operacional da plataforma.
+- [Para Vendedores](/vendas): Material para parceiros e revendedores.
+
+## Optional
+
+- [Termos de Uso](/legal/termos)
+- [Política de Privacidade](/legal/privacidade)

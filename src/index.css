@@ -1,0 +1,513 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=DM+Sans:wght@400;500;600;700&family=Poppins:wght@300;400;500;600;700;800;900&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,800;9..144,900&family=Nunito:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ===== GLOBAL CORAL THEME — applied across admin, public, master, garcom ===== */
+    /* Palette: #FF5757 (coral), #F2B705 (gold accent), warm neutrals */
+    --background: 0 0% 100%;
+    --foreground: 0 0% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 10%;
+
+    /* Primary: vibrant coral red #FF5757 */
+    --primary: 0 100% 67%;
+    --primary-foreground: 0 0% 100%;
+    --primary-soft: 0 100% 96%;
+    --primary-glow: 14 100% 70%;
+
+    --secondary: 0 100% 97%;
+    --secondary-foreground: 0 60% 30%;
+
+    --muted: 24 30% 96%;
+    --muted-foreground: 0 5% 40%;
+
+    /* Accent: warm gold */
+    --accent: 38 95% 55%;
+    --accent-foreground: 0 0% 12%;
+
+    --destructive: 0 84% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 0 30% 92%;
+    --input: 0 30% 92%;
+    --ring: 0 100% 67%;
+
+    --radius: 1rem;
+
+    --success: 142 71% 45%;
+    --warning: 38 95% 55%;
+
+    /* Sidebar — ALWAYS dark per project rule, with coral accent */
+    --sidebar-background: 8 18% 8%;
+    --sidebar-foreground: 0 0% 95%;
+    --sidebar-primary: 0 100% 67%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 8 16% 14%;
+    --sidebar-accent-foreground: 0 0% 95%;
+    --sidebar-border: 8 14% 18%;
+    --sidebar-ring: 0 100% 67%;
+
+    --font-heading: 'Plus Jakarta Sans', 'DM Sans', sans-serif;
+    --font-body: 'Nunito', 'Inter', sans-serif;
+  }
+
+  .dark {
+    --background: 8 18% 6%;
+    --foreground: 0 0% 96%;
+
+    --card: 8 16% 10%;
+    --card-foreground: 0 0% 96%;
+
+    --popover: 8 16% 10%;
+    --popover-foreground: 0 0% 96%;
+
+    --primary: 0 100% 67%;
+    --primary-foreground: 0 0% 100%;
+    --primary-soft: 8 22% 12%;
+    --primary-glow: 14 100% 70%;
+
+    --secondary: 8 14% 14%;
+    --secondary-foreground: 0 0% 96%;
+
+    --muted: 8 12% 14%;
+    --muted-foreground: 8 8% 65%;
+
+    --accent: 38 95% 60%;
+    --accent-foreground: 0 0% 10%;
+
+    --destructive: 0 84% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 8 14% 18%;
+    --input: 8 14% 18%;
+    --ring: 0 100% 67%;
+
+    --success: 142 71% 50%;
+    --warning: 38 95% 60%;
+
+    /* Sidebar — even deeper in dark mode */
+    --sidebar-background: 8 22% 4%;
+    --sidebar-foreground: 0 0% 92%;
+    --sidebar-primary: 0 100% 67%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 8 18% 10%;
+    --sidebar-accent-foreground: 0 0% 92%;
+    --sidebar-border: 8 14% 14%;
+    --sidebar-ring: 0 100% 67%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-background text-foreground font-body;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+    overflow-wrap: break-word;
+  }
+}
+
+@layer utilities {
+  .font-heading {
+    font-family: var(--font-heading);
+  }
+
+  .font-body {
+    font-family: var(--font-body);
+  }
+
+  .text-success {
+    color: hsl(var(--success));
+  }
+
+  .text-warning {
+    color: hsl(var(--warning));
+  }
+
+  .bg-success {
+    background-color: hsl(var(--success));
+  }
+
+  .bg-warning {
+    background-color: hsl(var(--warning));
+  }
+
+  .bg-success\/10 {
+    background-color: hsl(var(--success) / 0.1);
+  }
+
+  .bg-warning\/10 {
+    background-color: hsl(var(--warning) / 0.1);
+  }
+
+  .glass {
+    @apply bg-card/80 backdrop-blur-xl;
+  }
+
+  .card-elevated {
+    @apply bg-card rounded-2xl shadow-sm shadow-black/[0.04] ring-1 ring-border/60;
+  }
+
+  .card-elevated-hover {
+    @apply card-elevated transition-all duration-200 hover:shadow-md hover:shadow-black/[0.08] hover:-translate-y-0.5;
+  }
+
+  .metric-tile {
+    @apply relative overflow-hidden bg-card rounded-2xl ring-1 ring-border/60 shadow-sm shadow-black/[0.04] p-5 transition-all duration-200 hover:shadow-md hover:shadow-primary/5 hover:-translate-y-0.5;
+  }
+  .metric-tile::before {
+    content: '';
+    @apply absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent opacity-0 transition-opacity duration-200;
+  }
+  .metric-tile:hover::before { opacity: 1; }
+
+  .section-padding {
+    @apply px-4 sm:px-6 lg:px-8;
+  }
+
+  .container-tight {
+    @apply max-w-6xl mx-auto;
+  }
+}
+
+/* Scroll reveal animation */
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.animate-reveal-up {
+  animation: reveal-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.5s ease-out forwards;
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 2s ease-in-out infinite;
+}
+
+/* Leaflet z-index fix — keep map below sidebar (z-50) and header (z-30) */
+.leaflet-container { z-index: 0; isolation: isolate; }
+.leaflet-pane,
+.leaflet-top,
+.leaflet-bottom,
+.leaflet-control { z-index: 1 !important; }
+.leaflet-popup-pane,
+.leaflet-tooltip-pane { z-index: 2 !important; }
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.3);
+}
+
+/* ============================================
+   PUBLIC PAGES — Typography only (tokens are global now)
+   ============================================ */
+
+@layer utilities {
+  .font-public {
+    font-family: 'Nunito', 'Plus Jakarta Sans', 'Poppins', system-ui, sans-serif;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+  .font-public *,
+  .font-public input,
+  .font-public textarea,
+  .font-public select,
+  .font-public button {
+    font-family: inherit;
+  }
+}
+
+@layer utilities {
+
+  /* Display font for editorial moments (hero title, section dividers) */
+  .font-display {
+    font-family: 'Plus Jakarta Sans', 'Nunito', 'Poppins', sans-serif;
+    font-optical-sizing: auto;
+    letter-spacing: -0.025em;
+    font-weight: 800;
+  }
+
+  /* Tinted glass — sticky headers / floating bars */
+  .glass-tinted {
+    background: hsl(var(--background) / 0.72);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+  }
+
+  /* Tinted shadow on primary color */
+  .shadow-tinted {
+    box-shadow: 0 12px 40px -12px hsl(var(--primary) / 0.45),
+                0 4px 12px -4px hsl(var(--primary) / 0.25);
+  }
+
+  .shadow-tinted-sm {
+    box-shadow: 0 6px 20px -6px hsl(var(--primary) / 0.35);
+  }
+
+  /* Section background tints (subtle wash derived from primary) */
+  .section-tint-warm {
+    background: linear-gradient(180deg,
+      hsl(var(--accent) / 0.06) 0%,
+      transparent 100%);
+  }
+
+  .section-tint-cool {
+    background: linear-gradient(180deg,
+      hsl(var(--primary) / 0.05) 0%,
+      transparent 100%);
+  }
+
+  /* Hide scrollbar but keep scrollable */
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Animated gradient text */
+  .text-gradient-primary {
+    background: linear-gradient(135deg,
+      hsl(var(--primary)) 0%,
+      hsl(var(--accent)) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+}
+
+/* Bottom sheet spring entrance */
+@keyframes sheet-spring-up {
+  0% { transform: translateY(100%); }
+  70% { transform: translateY(-8px); }
+  100% { transform: translateY(0); }
+}
+
+.animate-sheet-spring {
+  animation: sheet-spring-up 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* Fly-to-cart — used when adding items */
+@keyframes fly-to-cart {
+  0% { transform: scale(1); opacity: 1; }
+  60% { transform: scale(0.5) translate(40vw, 60vh); opacity: 0.7; }
+  100% { transform: scale(0.1) translate(45vw, 70vh); opacity: 0; }
+}
+
+.animate-fly-to-cart {
+  animation: fly-to-cart 0.7s cubic-bezier(0.55, 0, 0.85, 0.5) forwards;
+}
+
+/* Cart bar pulse on update */
+@keyframes cart-bump {
+  0%, 100% { transform: scale(1); }
+  30% { transform: scale(1.04); }
+  60% { transform: scale(0.98); }
+}
+
+.animate-cart-bump {
+  animation: cart-bump 0.4s ease-out;
+}
+
+/* Shimmering price tag */
+@keyframes price-shine {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.price-shine {
+  background: linear-gradient(110deg,
+    hsl(var(--accent)) 30%,
+    hsl(var(--accent) / 0.6) 50%,
+    hsl(var(--accent)) 70%);
+  background-size: 200% 100%;
+  animation: price-shine 3s linear infinite;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Tactile button press */
+.tactile {
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.2s ease;
+}
+.tactile:active {
+  transform: scale(0.96);
+}
+
+/* Scroll-snap helper for category strip */
+.snap-x-strong {
+  scroll-snap-type: x mandatory;
+}
+.snap-start-always {
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+
+/* ===== Bottom nav micro-interactions ===== */
+@keyframes nav-pop {
+  0%   { transform: translateY(0) scale(1); }
+  40%  { transform: translateY(-6px) scale(1.18); }
+  100% { transform: translateY(-2px) scale(1.08); }
+}
+.animate-nav-pop { animation: nav-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+
+@keyframes nav-indicator {
+  from { transform: scaleX(0); opacity: 0; }
+  to   { transform: scaleX(1); opacity: 1; }
+}
+.animate-nav-indicator {
+  animation: nav-indicator 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  transform-origin: center;
+}
+
+@keyframes float-soft {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-3px); }
+}
+.animate-float-soft { animation: float-soft 3s ease-in-out infinite; }
+
+/* Coral-tinted soft shadow for public cards */
+.font-public .shadow-coral {
+  box-shadow: 0 14px 40px -16px hsl(var(--primary) / 0.45),
+              0 4px 14px -6px hsl(var(--primary) / 0.18);
+}
+.font-public .shadow-coral-sm {
+  box-shadow: 0 6px 18px -8px hsl(var(--primary) / 0.35);
+}
+
+/* ===== Responsive container for public pages ===== */
+.public-container {
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1rem;
+  padding-right: 1rem;
+  max-width: 42rem; /* mobile + tablet base */
+}
+@media (min-width: 768px) {
+  .public-container { padding-left: 1.5rem; padding-right: 1.5rem; }
+}
+@media (min-width: 1024px) {
+  .public-container { max-width: 64rem; }
+}
+@media (min-width: 1280px) {
+  .public-container { max-width: 72rem; padding-left: 2rem; padding-right: 2rem; }
+}
+
+/* Fluid hero title */
+.font-public .hero-title {
+  font-size: clamp(1.25rem, 4.5vw, 2rem);
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+}
+
+/* Hide bottom nav on lg+ screens — desktop has more affordance */
+@media (min-width: 1024px) {
+  .public-bottom-nav-hide-desktop { display: none !important; }
+}
+
+/* ===== KDS TV Mode ===== */
+.tv-mode { font-size: 17px; }
+.tv-mode .font-heading { letter-spacing: -0.02em; }
+@media (min-width: 1280px) {
+  .tv-mode { font-size: 19px; }
+}
+@media (min-width: 1920px) {
+  .tv-mode { font-size: 22px; }
+}
+/* aumenta densidade tipográfica de números de pedido em TV */
+.tv-mode h1, .tv-mode h2, .tv-mode h3 { letter-spacing: -0.02em; }
+/* esconde barra de rolagem feia em TV */
+.tv-mode ::-webkit-scrollbar { width: 6px; height: 6px; }
+.tv-mode ::-webkit-scrollbar-thumb { background: hsl(var(--muted-foreground) / 0.3); border-radius: 9999px; }
+
+/* KDS Low-motion: estabiliza a tela na TV reduzindo animações/transições/transforms.
+   Mantém apenas opacidade/cor para sinalização. */
+.kds-low-motion *,
+.kds-low-motion *::before,
+.kds-low-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  transition-delay: 0ms !important;
+}
+.kds-low-motion .animate-pulse,
+.kds-low-motion .animate-bounce,
+.kds-low-motion .animate-spin { animation: none !important; }
+.kds-low-motion .hover\:-translate-y-0\.5:hover { transform: none !important; }
+.kds-low-motion .hover\:scale-105:hover { transform: none !important; }

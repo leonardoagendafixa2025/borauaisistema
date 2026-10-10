@@ -1,0 +1,1 @@
+UPDATE public.subscriptions SET current_period_end = now() + interval '30 days', status = 'active', updated_at = now() WHERE restaurant_id = 'c438a4c2-3126-4184-b397-114dcbe2c2ad';

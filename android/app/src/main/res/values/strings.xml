@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Bora Uai</string>
+    <string name="title_activity_main">Bora Uai</string>
+    <string name="package_name">com.borauai.app</string>
+    <string name="custom_url_scheme">com.borauai.app</string>
+</resources>

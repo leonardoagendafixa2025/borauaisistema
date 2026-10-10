@@ -1,0 +1,1 @@
+GRANT SELECT ON public.restaurant_settings TO anon, authenticated;

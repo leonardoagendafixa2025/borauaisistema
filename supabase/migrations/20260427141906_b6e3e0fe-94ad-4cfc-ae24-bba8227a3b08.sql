@@ -1,0 +1,1 @@
+UPDATE public.subscription_plans SET price = 199.00 WHERE id = 'd9643d6c-59e3-4038-aa96-14ffb28f684f';

@@ -1,0 +1,2 @@
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS sla_acknowledged_at TIMESTAMP WITH TIME ZONE;
+CREATE INDEX IF NOT EXISTS idx_orders_sla_ack ON public.orders (restaurant_id, sla_acknowledged_at) WHERE sla_alert_sent_at IS NOT NULL;
