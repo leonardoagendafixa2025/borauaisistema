@@ -231,8 +231,8 @@ export default function RestaurantList() {
     if (!ownerNewEmail && !ownerNewPassword) { toast.error('Informe o novo e-mail ou nova senha'); return; }
     setCredentialsSaving(true);
     try {
-      const { data: session } = await supabase.auth.getSession();
-      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-update-user`, {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "https://ynxrtjvyeymbiifehenk.supabase.co";
+      const res = await fetch(`${supabaseUrl}/functions/v1/admin-update-user`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
