@@ -272,12 +272,24 @@ export function usePublicSettings(restaurantId: string | undefined) {
     queryKey: ['public-settings', restaurantId],
     queryFn: async () => {
       if (!restaurantId) return null;
+      // 1. Tenta view pública com permissão irrestrita a anon
+      const { data: pubData, error: pubErr } = await (publicSupabase as any)
+        .from('restaurant_settings_public')
+        .select('*')
+        .eq('restaurant_id', restaurantId)
+        .maybeSingle();
+      if (!pubErr && pubData) return pubData;
+
+      // 2. Fallback caso a view não esteja disponível
       const { data, error } = await publicSupabase
         .from('restaurant_settings')
         .select('*')
         .eq('restaurant_id', restaurantId)
         .maybeSingle();
-      if (error) throw error;
+      if (error) {
+        console.warn('Configurações públicas não carregadas:', error.message);
+        return null;
+      }
       return data;
     },
     enabled: !!restaurantId,
