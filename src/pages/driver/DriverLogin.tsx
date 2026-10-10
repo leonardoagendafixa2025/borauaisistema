@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Truck, KeyRound, Loader2 } from 'lucide-react';
+import { Truck, KeyRound, Loader2, Download } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -87,7 +87,17 @@ export default function DriverLogin() {
           </Button>
         </form>
 
-        <p className="text-xs text-center text-muted-foreground mt-6">
+        <div className="mt-4 text-center">
+          <a
+            href="/borauai.apk"
+            download="borauai.apk"
+            className="inline-flex items-center gap-2 text-xs font-semibold text-primary hover:text-primary/80 bg-primary/10 hover:bg-primary/20 px-3.5 py-2 rounded-xl transition-all"
+          >
+            <Download className="h-4 w-4" /> Baixar aplicativo Android (.apk)
+          </a>
+        </div>
+
+        <p className="text-xs text-center text-muted-foreground mt-4">
           Não tem PIN? Peça ao gerente do restaurante.
         </p>
       </div>

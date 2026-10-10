@@ -13,7 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Plus, Truck, Bike, Car, Edit2, Trash2, Phone, User, Power, PowerOff, Copy, KeyRound, MapPin, Star } from 'lucide-react';
+import { Plus, Truck, Bike, Car, Edit2, Trash2, Phone, User, Power, PowerOff, Copy, KeyRound, MapPin, Star, Download, Share2 } from 'lucide-react';
+import { useRestaurant } from '@/hooks/useRestaurantData';
 import { Switch } from '@/components/ui/switch';
 import LiveDeliveriesPanel from '@/components/LiveDeliveriesPanel';
 
@@ -38,10 +39,33 @@ interface DriverForm {
 
 export default function DeliveryDriversPage() {
   const { restaurantId } = useAuth();
+  const { data: restaurant } = useRestaurant();
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<DriverForm>({ name: '', phone: '', vehicle: 'moto' });
+
+  const shareDriverWhatsApp = (driver: any) => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const slug = restaurant?.slug || '';
+    const text = encodeURIComponent(
+      [
+        `Olá ${driver.name}! 👋`,
+        ``,
+        `Aqui está o seu acesso ao aplicativo de entregas do *${restaurant?.name || 'Bora Uai'}*:`,
+        `• Link de acesso: ${origin}/entregador`,
+        `• Código do restaurante: *${slug}*`,
+        `• Seu PIN: *${driver.access_pin || ''}*`,
+        `• Baixar App Android (.apk): ${origin}/borauai.apk`,
+        ``,
+        `Abra o app no celular, digite o código e seu PIN para ficar online e receber pedidos em rota! 🛵💨`,
+      ].join('\n')
+    );
+    const digits = (driver.phone || '').replace(/\D/g, '');
+    const phone = digits ? (digits.startsWith('55') ? digits : `55${digits}`) : '';
+    const url = phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`;
+    window.open(url, '_blank', 'noopener');
+  };
 
   const { data: drivers = [], isLoading } = useQuery({
     queryKey: ['delivery_drivers', restaurantId],
@@ -198,11 +222,18 @@ export default function DeliveryDriversPage() {
             <Card className="mb-4 border-primary/30 bg-primary/5">
               <CardContent className="py-4 text-sm flex items-start gap-3">
                 <KeyRound className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-                <div>
+                <div className="flex-1">
                   <p className="font-semibold">Como o entregador acessa o app</p>
                   <p className="text-muted-foreground text-xs mt-1">
                     Cada entregador entra em <code className="bg-background px-1 py-0.5 rounded">/entregador</code> com o código do restaurante e o PIN abaixo. Lá ele ativa o GPS e aparece no mapa em tempo real.
                   </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button variant="outline" size="sm" asChild className="h-8 text-xs gap-1.5">
+                      <a href="/borauai.apk" download="borauai.apk">
+                        <Download className="h-3.5 w-3.5" /> Baixar App do Entregador (.apk)
+                      </a>
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -298,8 +329,9 @@ export default function DeliveryDriversPage() {
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-1">
-                              <Button size="icon" variant="ghost" onClick={() => openEdit(driver)}><Edit2 className="h-4 w-4" /></Button>
-                              <Button size="icon" variant="ghost" onClick={() => handleDelete(driver.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                              <Button size="icon" variant="ghost" onClick={() => shareDriverWhatsApp(driver)} title="Compartilhar acesso pelo WhatsApp"><Share2 className="h-4 w-4 text-emerald-500" /></Button>
+                              <Button size="icon" variant="ghost" onClick={() => openEdit(driver)} title="Editar"><Edit2 className="h-4 w-4" /></Button>
+                              <Button size="icon" variant="ghost" onClick={() => handleDelete(driver.id)} title="Excluir"><Trash2 className="h-4 w-4 text-destructive" /></Button>
                             </div>
                           </TableCell>
                         </TableRow>

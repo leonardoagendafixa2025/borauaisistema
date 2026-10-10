@@ -801,6 +801,8 @@ export default function Index() {
             <Link to="/ajuda" className="hover:text-foreground transition-colors">Ajuda</Link>
             <Link to="/precos" className="hover:text-foreground transition-colors">Preços</Link>
             <Link to="/restaurant/login" className="hover:text-foreground transition-colors">Restaurante</Link>
+            <Link to="/garcom/login" className="hover:text-foreground transition-colors">Garçom</Link>
+            <Link to="/entregador" className="hover:text-foreground transition-colors">Entregador</Link>
             <Link to="/cliente/login" className="hover:text-foreground transition-colors">Minha conta</Link>
             <Link to="/master/login" className="hover:text-foreground transition-colors">Admin</Link>
             <a href="/borauai.apk" download="borauai.apk" className="hover:text-primary transition-colors font-medium">Baixar App (.apk)</a>
