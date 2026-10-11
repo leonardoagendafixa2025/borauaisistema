@@ -27,6 +27,7 @@ import OverduePage from "./pages/master/OverduePage";
 import PlansPage from "./pages/master/PlansPage";
 import PlatformCouponsPage from "./pages/master/PlatformCouponsPage";
 import FeatureFlagsPage from "./pages/master/FeatureFlagsPage";
+import PushNotificationsPage from "./pages/master/PushNotificationsPage";
 import SaasMetricsPage from "./pages/master/SaasMetricsPage";
 import ImpersonationLogPage from "./pages/master/ImpersonationLogPage";
 import MessageTemplatesPage from "./pages/master/MessageTemplatesPage";
@@ -131,7 +132,8 @@ const App = () => (
             <Route path="/master/inadimplencia" element={<ProtectedRoute requireMaster><OverduePage /></ProtectedRoute>} />
             <Route path="/master/planos" element={<ProtectedRoute requireMaster><PlansPage /></ProtectedRoute>} />
             <Route path="/master/cupons" element={<ProtectedRoute requireMaster><PlatformCouponsPage /></ProtectedRoute>} />
-            <Route path="/master/feature-flags" element={<ProtectedRoute requireMaster><FeatureFlagsPage /></ProtectedRoute>} />
+            <Route path="/master/push" element={<ProtectedRoute requireMaster><PushNotificationsPage /></ProtectedRoute>} />
+            <Route path="/master/feature-flags" element={<ProtectedRoute requireMaster><PushNotificationsPage /></ProtectedRoute>} />
             <Route path="/master/metricas" element={<ProtectedRoute requireMaster><SaasMetricsPage /></ProtectedRoute>} />
             <Route path="/master/onboarding" element={<ProtectedRoute requireMaster><OnboardingHealthPage /></ProtectedRoute>} />
             <Route path="/master/impersonations" element={<ProtectedRoute requireMaster><ImpersonationLogPage /></ProtectedRoute>} />

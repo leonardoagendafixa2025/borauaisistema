@@ -45,7 +45,7 @@ export function useWebPush() {
   useEffect(() => { refresh(); }, [refresh]);
 
   const subscribe = useCallback(async () => {
-    if (!user || !restaurantId) throw new Error('Faça login primeiro');
+    if (!user) throw new Error('Faça login primeiro');
     setBusy(true);
     try {
       // Registra SW e aguarda ficar ATIVO (não só ready)
@@ -122,7 +122,7 @@ export function useWebPush() {
         .upsert(
           {
             user_id: user.id,
-            restaurant_id: restaurantId,
+            restaurant_id: restaurantId || null,
             endpoint,
             p256dh,
             auth,

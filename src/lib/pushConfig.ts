@@ -1,9 +1,10 @@
 // Configuração pública do Web Push.
 // A chave VAPID pública é desenhada para ficar no frontend — só identifica o servidor.
 export const VAPID_PUBLIC_KEY =
-  'BMkpzoytZiuqXwE5Jo2ltua-FDxnx5gVc95jsNcXLbKNgeQUIG877urEy6B84aG8OiwXGnKd702nEunMSozAQqU';
+  'BJOZteu5NRKarKGeaue3DpKROnNvf90eviVFKCUn0eq-ZtCekAfRRnOGfYBk8y29Y6JyqO2kUaZDBc1bCPdTjag';
 
-export const SW_PATH = '/sw-garcom.js';
+export const SW_PATH = '/sw.js';
+
 
 /** Converte a chave VAPID base64url em Uint8Array para a Push API. */
 export function urlBase64ToUint8Array(base64String: string): Uint8Array {

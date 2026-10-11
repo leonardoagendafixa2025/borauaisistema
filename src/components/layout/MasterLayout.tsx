@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Store, CreditCard, Users, Settings, LogOut,
   ChevronLeft, Menu, TrendingUp, FileText, Plug, ShieldAlert, Activity, Megaphone, AlertTriangle,
-  Package, Ticket, Flag, BarChart3, Sparkles, LogIn, MessageSquare
+  Package, Ticket, Flag, BarChart3, Sparkles, LogIn, MessageSquare, BellRing
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import NotificationBell from '@/components/NotificationBell';
@@ -20,7 +20,7 @@ const navItems = [
   { label: 'Assinaturas', icon: TrendingUp, path: '/master/subscriptions' },
   { label: 'Planos', icon: Package, path: '/master/planos' },
   { label: 'Cupons SaaS', icon: Ticket, path: '/master/cupons' },
-  { label: 'Feature Flags', icon: Flag, path: '/master/feature-flags' },
+  { label: 'Notificações Push', icon: BellRing, path: '/master/push' },
   { label: 'Comunicados', icon: Megaphone, path: '/master/comunicados' },
   { label: 'Templates', icon: MessageSquare, path: '/master/templates' },
   { label: 'Integrações', icon: Plug, path: '/master/integracoes' },
