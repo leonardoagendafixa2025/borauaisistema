@@ -13,32 +13,42 @@ import {
 export type PushStatus = 'unsupported' | 'needs-pwa' | 'denied' | 'unsubscribed' | 'subscribed';
 
 export function useWebPush() {
-  const { user, restaurantId } = useAuth();
+  let user: any = null;
+  let restaurantId: string | null = null;
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const auth = useAuth();
+    user = auth?.user ?? null;
+    restaurantId = auth?.restaurantId ?? null;
+  } catch {
+    // Graceful fallback if called outside AuthProvider
+  }
+
   const [status, setStatus] = useState<PushStatus>('unsupported');
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
-    if (!isPushSupported()) {
-      // iOS so aceita PWA instalado
-      if (isIOS() && !isStandalonePWA()) setStatus('needs-pwa');
-      else setStatus('unsupported');
-      return;
-    }
-    if (isIOS() && !isStandalonePWA()) {
-      setStatus('needs-pwa');
-      return;
-    }
-    if (Notification.permission === 'denied') {
-      setStatus('denied');
-      return;
-    }
     try {
+      if (!isPushSupported() || typeof Notification === 'undefined') {
+        // iOS so aceita PWA instalado
+        if (isIOS() && !isStandalonePWA()) setStatus('needs-pwa');
+        else setStatus('unsupported');
+        return;
+      }
+      if (isIOS() && !isStandalonePWA()) {
+        setStatus('needs-pwa');
+        return;
+      }
+      if (Notification.permission === 'denied') {
+        setStatus('denied');
+        return;
+      }
       const reg = await navigator.serviceWorker.getRegistration(SW_PATH);
       if (!reg) { setStatus('unsubscribed'); return; }
       const sub = await reg.pushManager.getSubscription();
       setStatus(sub ? 'subscribed' : 'unsubscribed');
     } catch {
-      setStatus('unsubscribed');
+      setStatus('unsupported');
     }
   }, []);
 

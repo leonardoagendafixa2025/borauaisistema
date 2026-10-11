@@ -107,8 +107,8 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
-          <PushNotificationPrompt />
           <AuthProvider>
+            <PushNotificationPrompt />
             <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/vendas" element={<SalesPage />} />
