@@ -7,6 +7,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { ThemeProvider } from "@/hooks/useTheme";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import PlanGate from "@/components/PlanGate";
+import PushNotificationPrompt from "@/components/PushNotificationPrompt";
 import Index from "./pages/Index";
 import SalesPage from "./pages/SalesPage";
 import SalesPlaybook from "./pages/SalesPlaybook";
@@ -106,6 +107,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
+          <PushNotificationPrompt />
           <AuthProvider>
             <Routes>
             <Route path="/" element={<Index />} />
