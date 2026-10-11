@@ -110,9 +110,15 @@ export default function PushNotificationsPage() {
         throw new Error('Informe o título e a mensagem da notificação.');
       }
 
+      const { data: { session } } = await supabase.auth.getSession();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
       const response = await fetch('/api/send-push', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           title,
           body,
