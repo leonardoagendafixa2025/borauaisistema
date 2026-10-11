@@ -100,14 +100,48 @@ export default function PlansPage() {
     onError: (e: any) => toast({ title: 'Erro', description: e.message, variant: 'destructive' }),
   });
 
-  const deleteMutation = useMutation({
+  const toggleActiveMutation = useMutation({
+    mutationFn: async ({ id, active }: { id: string; active: boolean }) => {
+      const { error } = await supabase.from('subscription_plans').update({ active }).eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: (_, { active }) => {
+      qc.invalidateQueries({ queryKey: ['master-plans'] });
+      toast({ title: active ? 'Plano ativado' : 'Plano desativado' });
+    },
+    onError: (e: any) => toast({ title: 'Erro', description: e.message, variant: 'destructive' }),
+  });
+
+  const deletePlanMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from('subscription_plans').update({ active: false }).eq('id', id);
+      // 1. Verifica se há assinaturas vinculadas a este plano
+      const { count } = await supabase
+        .from('subscriptions')
+        .select('*', { count: 'exact', head: true })
+        .eq('plan_id', id);
+
+      if (count && count > 0) {
+        throw new Error(
+          `Não é possível excluir este plano pois existem ${count} assinatura(s) vinculada(s) a ele. Em vez disso, desative o plano.`
+        );
+      }
+
+      // 2. Exclui o plano do banco de dados
+      const { error } = await supabase.from('subscription_plans').delete().eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['master-plans'] });
-      toast({ title: 'Plano desativado' });
+      setOpen(false);
+      setEditing(null);
+      toast({ title: 'Plano excluído', description: 'O plano foi removido com sucesso.' });
+    },
+    onError: (e: any) => {
+      toast({
+        title: 'Não foi possível excluir',
+        description: e.message || 'Erro ao excluir o plano.',
+        variant: 'destructive',
+      });
     },
   });
 
@@ -182,11 +216,38 @@ export default function PlansPage() {
                   </div>
                 </div>
               )}
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-                <Button onClick={() => editing && saveMutation.mutate(editing)} disabled={saveMutation.isPending}>
-                  {saveMutation.isPending ? 'Salvando…' : 'Salvar'}
-                </Button>
+              <DialogFooter className="flex flex-col sm:flex-row sm:justify-between items-stretch sm:items-center gap-3 pt-4 border-t">
+                {editing?.id ? (
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `Tem certeza que deseja EXCLUIR o plano "${editing.name}"?\nEsta ação não poderá ser desfeita.`
+                        )
+                      ) {
+                        deletePlanMutation.mutate(editing.id!);
+                      }
+                    }}
+                    disabled={deletePlanMutation.isPending || saveMutation.isPending}
+                    className="flex items-center justify-center gap-1.5"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {deletePlanMutation.isPending ? 'Excluindo…' : 'Excluir Plano'}
+                  </Button>
+                ) : (
+                  <div />
+                )}
+                <div className="flex items-center gap-2 justify-end">
+                  <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+                  <Button
+                    onClick={() => editing && saveMutation.mutate(editing)}
+                    disabled={saveMutation.isPending || deletePlanMutation.isPending}
+                  >
+                    {saveMutation.isPending ? 'Salvando…' : 'Salvar'}
+                  </Button>
+                </div>
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -217,15 +278,31 @@ export default function PlansPage() {
                     <li>{plan.visual_customization ? '✅' : '❌'} Customização visual</li>
                     <li>{plan.custom_domain ? '✅' : '❌'} Domínio próprio</li>
                   </ul>
-                  <div className="flex gap-2 pt-2">
-                    <Button size="sm" variant="outline" onClick={() => { setEditing(plan); setOpen(true); }}>
-                      <Pencil className="h-3.5 w-3.5 mr-1" />Editar
-                    </Button>
-                    {plan.active && (
-                      <Button size="sm" variant="ghost" className="text-destructive" onClick={() => deleteMutation.mutate(plan.id)}>
-                        <Trash2 className="h-3.5 w-3.5 mr-1" />Desativar
+                  <div className="flex items-center justify-between gap-2 pt-2 border-t">
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" variant="outline" onClick={() => { setEditing(plan); setOpen(true); }}>
+                        <Pencil className="h-3.5 w-3.5 mr-1" />Editar
                       </Button>
-                    )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => toggleActiveMutation.mutate({ id: plan.id, active: !plan.active })}
+                      >
+                        {plan.active ? 'Desativar' : 'Ativar'}
+                      </Button>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive hover:bg-destructive/10"
+                      onClick={() => {
+                        if (window.confirm(`Tem certeza que deseja excluir o plano "${plan.name}"?`)) {
+                          deletePlanMutation.mutate(plan.id);
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5 mr-1" />Excluir
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
