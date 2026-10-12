@@ -27,23 +27,20 @@ export default function RegisterRestaurant() {
     { id: 'fallback-premium', name: 'Premium', tier: 'premium', price: 199.99, description: 'Operação completa: balada, DJ, estoque, IA e multi-usuário.', features: ['Tudo do Pro', 'Modo Balada + DJ', 'Estoque + fichas', 'IA insights', 'Usuários ilimitados'] },
   ];
 
-  const CACHE_KEY = 'borauai_register_plans_cache_v1';
-  const readCache = () => {
-    try { const raw = localStorage.getItem(CACHE_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; }
-  };
-
   const { data: plansRaw, isLoading: plansLoading, isError: plansError, refetch: refetchPlans, isFetching: plansFetching } = useQuery({
-    queryKey: ['register-plans'],
+    queryKey: ['register-plans-v2'],
     queryFn: async () => {
+      try { localStorage.removeItem('borauai_register_plans_cache_v1'); } catch {}
       const { data, error } = await (publicSupabase.from('subscription_plans' as any).select('*').eq('active', true).order('price') as any);
       if (error) throw error;
-      const filtered = ((data as any[]) || []).filter((p: any) => p.tier !== 'basic_test');
-      try { localStorage.setItem(CACHE_KEY, JSON.stringify(filtered)); } catch {}
+      const filtered = ((data as any[]) || []).filter(
+        (p: any) => !p.name?.toLowerCase().includes('teste') && p.tier !== 'basic_test' && Number(p.price) >= 30
+      );
       return filtered;
     },
     retry: 1,
-    staleTime: 5 * 60 * 1000,
-    initialData: () => readCache() ?? undefined,
+    refetchOnMount: 'always',
+    staleTime: 30_000,
   });
 
   // Sempre temos planos para mostrar: vivos > cache > fallback estático

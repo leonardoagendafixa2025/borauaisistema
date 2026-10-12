@@ -32,23 +32,24 @@ const FALLBACK_PLANS = [
     features: ['Tudo do Profissional', 'Modo Balada (line-up, DJ)', 'Pulseiras cashless', 'Pedidos de música', 'Integração Telegram', 'Bot inteligente', 'Suporte prioritário 24/7'],
   },
 ];
-const CACHE_KEY = 'home_plans_cache_v1';
-const readCache = () => {
-  try { const raw = localStorage.getItem(CACHE_KEY); return raw ? JSON.parse(raw) : undefined; } catch { return undefined; }
-};
-
 export default function Index() {
   const { data: plansRaw } = useQuery({
-    queryKey: ['public-plans'],
+    queryKey: ['public-plans-v2'],
     queryFn: async () => {
-      const { data } = await publicSupabase.from('subscription_plans').select('*').eq('active', true).order('price');
-      if (data && data.length > 0) {
-        try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch {}
-      }
-      return data || [];
+      try { localStorage.removeItem('home_plans_cache_v1'); } catch {}
+      const { data, error } = await publicSupabase
+        .from('subscription_plans')
+        .select('*')
+        .eq('active', true)
+        .order('price');
+      if (error) throw error;
+      const filtered = ((data || []) as any[]).filter(
+        (p: any) => !p.name?.toLowerCase().includes('teste') && p.tier !== 'basic_test' && Number(p.price) >= 30
+      );
+      return filtered;
     },
-    initialData: () => readCache(),
-    staleTime: 5 * 60 * 1000,
+    refetchOnMount: 'always',
+    staleTime: 30_000,
     retry: 1,
   });
   const plans = (plansRaw && plansRaw.length > 0) ? plansRaw : FALLBACK_PLANS;

@@ -121,15 +121,19 @@ function Cell({ value }: { value: boolean | string }) {
 
 export default function SalesPage() {
   const { data: plans = [] } = useQuery({
-    queryKey: ["sales-plans"],
+    queryKey: ["sales-plans-v2"],
     queryFn: async () => {
       const { data } = await supabase
         .from("subscription_plans")
         .select("*")
         .eq("active", true)
         .order("price");
-      return data || [];
+      return ((data || []) as any[]).filter(
+        (p: any) => !p.name?.toLowerCase().includes("teste") && p.tier !== "basic_test" && Number(p.price) >= 30
+      );
     },
+    refetchOnMount: "always",
+    staleTime: 30_000,
   });
 
   const fmt = (v: number) =>

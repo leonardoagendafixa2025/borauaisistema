@@ -54,7 +54,7 @@ export default function PricingPage() {
   ];
 
   const { data: plansRaw } = useQuery({
-    queryKey: ['public-plans-page'],
+    queryKey: ['public-plans-page-v2'],
     queryFn: async () => {
       const { data, error } = await (publicSupabase
         .from('subscription_plans' as any)
@@ -63,10 +63,13 @@ export default function PricingPage() {
         .neq('tier', 'basic_test')
         .order('price') as any);
       if (error) throw error;
-      return ((data as any[]) || []).filter((p: any) => p.tier !== 'basic' || p.price >= 50);
+      return ((data as any[]) || []).filter(
+        (p: any) => !p.name?.toLowerCase().includes('teste') && p.tier !== 'basic_test' && Number(p.price) >= 30
+      );
     },
     retry: 1,
-    staleTime: 5 * 60 * 1000,
+    refetchOnMount: 'always',
+    staleTime: 30_000,
   });
 
   // Sempre temos planos para exibir: banco > fallback estático
