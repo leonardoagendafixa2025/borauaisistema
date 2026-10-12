@@ -9,9 +9,77 @@ const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || 'BJOZteu5NRKarKGeaue3Dp
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || 'b7p7vyy2HlmcmWzZ91na780C18tcFONv8c6DrMyBfQY';
 const VAPID_SUBJECT = 'mailto:contato@borauai.com';
 
+const GUEST_USER_ID = 'd1ac7098-2af3-4c5a-9d22-d1ebdef6db2a';
+
 webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+
+function formatCurrency(val) {
+  const n = Number(val) || 0;
+  return `R$ ${n.toFixed(2).replace('.', ',')}`;
+}
+
+/** Formata notificações automáticas vindas de triggers de banco ou eventos operacionais */
+function buildEventNotification(eventType, payload) {
+  const p = payload || {};
+  switch (eventType) {
+    case 'new_order': {
+      const typeLabel = p.type === 'delivery' ? 'Entrega 🛵' : p.type === 'pickup' ? 'Retirada 🛍️' : 'Mesa 🍽️';
+      const totalStr = p.total ? ` • ${formatCurrency(p.total)}` : '';
+      return {
+        title: `🆕 Novo Pedido #${p.number || ''}`,
+        body: `${p.customer_name || 'Cliente'} • ${typeLabel}${totalStr}`,
+        url: '/garcom',
+        tag: `order-${p.order_id || Date.now()}`,
+        vibrate: [300, 100, 300, 100, 400],
+        requireInteraction: true,
+        actions: [{ action: 'open', title: '👀 Ver Pedido' }]
+      };
+    }
+    case 'waiter_call': {
+      const isBill = p.type === 'request_bill';
+      const tableText = p.table_label || (p.table_number ? `Mesa ${p.table_number}` : 'Mesa');
+      return {
+        title: isBill ? '💰 Pedido de Conta' : '🔔 Chamada de Garçom',
+        body: `${tableText} precisa de atendimento!${p.message ? ` — ${p.message}` : ''}`,
+        url: '/garcom',
+        tag: `call-${p.call_id || Date.now()}`,
+        vibrate: [400, 150, 400, 150, 400],
+        requireInteraction: true,
+        actions: [{ action: 'open', title: isBill ? '💵 Levar Conta' : '🏃 Atender Mesa' }]
+      };
+    }
+    case 'music_request': {
+      return {
+        title: '🎵 Pedido de Música',
+        body: `${p.song || 'Música pendente'} • ${p.table_label || 'Mesa'}${p.customer_name ? ` (${p.customer_name})` : ''}`,
+        url: '/restaurant/dj',
+        tag: `music-${p.request_id || Date.now()}`,
+        vibrate: [200, 100, 200, 100, 200],
+        actions: [{ action: 'open', title: '🎶 Ver Fila DJ' }]
+      };
+    }
+    case 'order_status': {
+      const statusMap = {
+        preparing: '👨‍🍳 Pedido sendo preparado!',
+        out_for_delivery: '🛵 Pedido saiu para entrega!',
+        ready: '✅ Pedido pronto para retirada!',
+        completed: '🎉 Pedido entregue! Bom apetite!'
+      };
+      return {
+        title: statusMap[p.status] || '📦 Atualização do Pedido',
+        body: p.message || `O status do seu pedido #${p.number || ''} foi atualizado.`,
+        url: p.order_id ? `/pedido/${p.order_id}` : '/meus-pedidos',
+        tag: `order-status-${p.order_id || Date.now()}`,
+        vibrate: [200, 100, 200],
+        actions: [{ action: 'open', title: '👀 Ver Status' }]
+      };
+    }
+    default:
+      return null;
+  }
+}
 
 export default async function handler(req, res) {
   // CORS headers
@@ -32,7 +100,72 @@ export default async function handler(req, res) {
   }
 
   try {
-    const {
+    const bodyData = req.body || {};
+    const { action } = bodyData;
+
+    // ========================================================
+    // AÇÃO 1: Inscrição de Aparelho (Suporta Usuários e Visitantes)
+    // ========================================================
+    if (action === 'subscribe') {
+      const {
+        endpoint,
+        p256dh,
+        auth,
+        user_id,
+        restaurant_id,
+        device_label,
+        user_agent
+      } = bodyData;
+
+      if (!endpoint || !p256dh || !auth) {
+        return res.status(400).json({ error: 'Dados da subscription inválidos.' });
+      }
+
+      const effectiveUserId = user_id || GUEST_USER_ID;
+
+      const { data, error } = await supabase
+        .from('push_subscriptions')
+        .upsert(
+          {
+            user_id: effectiveUserId,
+            restaurant_id: restaurant_id || null,
+            endpoint,
+            p256dh,
+            auth,
+            user_agent: (user_agent || '').slice(0, 200),
+            device_label: device_label || 'Browser',
+            last_seen_at: new Date().toISOString()
+          },
+          { onConflict: 'endpoint' }
+        )
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Erro ao salvar push_subscription:', error);
+        return res.status(500).json({ error: error.message });
+      }
+
+      return res.status(200).json({ success: true, subscription: data });
+    }
+
+    // ========================================================
+    // AÇÃO 2: Cancelamento de Inscrição
+    // ========================================================
+    if (action === 'unsubscribe') {
+      const { endpoint } = bodyData;
+      if (!endpoint) {
+        return res.status(400).json({ error: 'Endpoint não fornecido.' });
+      }
+
+      await supabase.from('push_subscriptions').delete().eq('endpoint', endpoint);
+      return res.status(200).json({ success: true });
+    }
+
+    // ========================================================
+    // AÇÃO 3: Disparo de Notificação Push
+    // ========================================================
+    let {
       title,
       body,
       url,
@@ -40,8 +173,24 @@ export default async function handler(req, res) {
       icon,
       restaurant_id,
       tag,
-      vibrate
-    } = req.body || {};
+      vibrate,
+      actions,
+      event_type,
+      payload
+    } = bodyData;
+
+    // Se recebido via trigger de evento (DB trigger ou webhook)
+    if (event_type) {
+      const generated = buildEventNotification(event_type, payload);
+      if (generated) {
+        title = title || generated.title;
+        body = body || generated.body;
+        url = url || generated.url;
+        tag = tag || generated.tag;
+        vibrate = vibrate || generated.vibrate;
+        actions = actions || generated.actions;
+      }
+    }
 
     if (!title || !body) {
       return res.status(400).json({ error: 'Título e mensagem são obrigatórios.' });
@@ -63,40 +212,42 @@ export default async function handler(req, res) {
 
     // Se não houver aparelhos inscritos ainda
     if (total === 0) {
-      // Registra no histórico de broadcasts
-      await supabase.from('master_broadcasts').insert({
-        channel: 'push',
-        subject: title,
-        body,
-        segment: { restaurant_id: restaurant_id || null, url: url || '/', image },
-        total_recipients: 0,
-        sent_count: 0,
-        failed_count: 0,
-        status: 'completed',
-        completed_at: new Date().toISOString()
-      });
+      // Registra no histórico de broadcasts se for disparo do Master
+      if (!event_type) {
+        await supabase.from('master_broadcasts').insert({
+          channel: 'push',
+          subject: title,
+          body,
+          segment: { restaurant_id: restaurant_id || null, url: url || '/', image },
+          total_recipients: 0,
+          sent_count: 0,
+          failed_count: 0,
+          status: 'completed',
+          completed_at: new Date().toISOString()
+        });
+      }
 
       return res.status(200).json({
         success: true,
         sent: 0,
         failed: 0,
         total: 0,
-        message: 'Nenhum dispositivo inscrito no momento. Clique em "Inscrever meu celular" para receber notificações de teste!'
+        message: 'Nenhum dispositivo inscrito para este segmento no momento.'
       });
     }
 
     // 2. Monta o payload do Web Push (estilo nativo Android / Shopee / iFood)
-    const payload = JSON.stringify({
+    const pushPayload = JSON.stringify({
       title,
       body,
       icon: icon || '/pwa-192.png',
       badge: '/favicon.png',
-      image: image || undefined, // Banner estilo Shopee/iFood
+      image: image || undefined,
       url: url || '/',
       tag: tag || `borauai-${Date.now()}`,
       vibrate: vibrate || [300, 100, 300, 100, 400],
       requireInteraction: true,
-      actions: [
+      actions: actions || [
         { action: 'open', title: '👀 Ver Agora' }
       ]
     });
@@ -117,7 +268,7 @@ export default async function handler(req, res) {
                 auth: s.auth
               }
             },
-            payload,
+            pushPayload,
             {
               TTL: 86400, // 24 horas no Google FCM
               urgency: 'high' // Acorda o Android imediatamente
@@ -141,18 +292,20 @@ export default async function handler(req, res) {
       await supabase.from('push_subscriptions').delete().in('id', expiredIds);
     }
 
-    // 5. Salva no histórico de broadcasts do Master
-    await supabase.from('master_broadcasts').insert({
-      channel: 'push',
-      subject: title,
-      body,
-      segment: { restaurant_id: restaurant_id || null, url: url || '/', image },
-      total_recipients: total,
-      sent_count: sent,
-      failed_count: failed,
-      status: failed === total && total > 0 ? 'failed' : 'completed',
-      completed_at: new Date().toISOString()
-    });
+    // 5. Salva no histórico de broadcasts se for disparo de campanha
+    if (!event_type) {
+      await supabase.from('master_broadcasts').insert({
+        channel: 'push',
+        subject: title,
+        body,
+        segment: { restaurant_id: restaurant_id || null, url: url || '/', image },
+        total_recipients: total,
+        sent_count: sent,
+        failed_count: failed,
+        status: failed === total && total > 0 ? 'failed' : 'completed',
+        completed_at: new Date().toISOString()
+      });
+    }
 
     return res.status(200).json({
       success: true,

@@ -17,6 +17,7 @@ import { useRestaurantReservationsEnabled } from '@/hooks/useRestaurantReservati
 import { useQuery } from '@tanstack/react-query';
 import { getCategoryEmoji } from '@/lib/categoryEmoji';
 import { useTheme } from '@/hooks/useTheme';
+import { sendPushNewOrder } from '@/lib/pushNotifications';
 
 type Product = Database['public']['Tables']['products']['Row'];
 type OrderType = 'delivery' | 'pickup';
@@ -429,6 +430,15 @@ export default function PublicMenu() {
       });
       const { error: itemsError } = await supabase.from('order_items').insert(items);
       if (itemsError) throw itemsError;
+
+      // Dispara notificação push instantânea para garçom/cozinha do restaurante
+      sendPushNewOrder(restaurant.id, {
+        order_id: order.id,
+        number: order.number,
+        customer_name: customerName,
+        type: effectiveOrderType,
+        total: grandTotal,
+      }).catch(() => {});
 
       // Record timestamp for rate limiting
       timestamps.push(now);

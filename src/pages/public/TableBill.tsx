@@ -6,6 +6,7 @@ import { usePublicRestaurant, usePublicSettings, usePublicTables } from '@/hooks
 import { useRestaurantTheme } from '@/hooks/useRestaurantTheme';
 import { toast } from 'sonner';
 import SplitBillDialog from '@/components/SplitBillDialog';
+import { sendPushWaiterCall } from '@/lib/pushNotifications';
 
 const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -120,6 +121,12 @@ export default function TableBill() {
     if (!restaurant?.id || !table?.id) return;
     setShowCallConfirm(false);
     await publicSupabase.from('waiter_calls').insert({ restaurant_id: restaurant.id, table_id: table.id, type: 'call_waiter' });
+    sendPushWaiterCall(restaurant.id, {
+      call_id: crypto.randomUUID(),
+      table_label: table.label || `Mesa ${table.number}`,
+      table_number: table.number,
+      type: 'call_waiter',
+    }).catch(() => {});
     setCallSent(true);
     toast.success('🔔 Garçom chamado! Aguarde um momento.');
     setTimeout(() => setCallSent(false), 60000);
@@ -129,6 +136,12 @@ export default function TableBill() {
     if (!restaurant?.id || !table?.id) return;
     setShowBillConfirm(false);
     await publicSupabase.from('waiter_calls').insert({ restaurant_id: restaurant.id, table_id: table.id, type: 'request_bill' });
+    sendPushWaiterCall(restaurant.id, {
+      call_id: crypto.randomUUID(),
+      table_label: table.label || `Mesa ${table.number}`,
+      table_number: table.number,
+      type: 'request_bill',
+    }).catch(() => {});
     setBillSent(true);
     toast.success('💰 Conta solicitada! Aguarde um momento.');
     setTimeout(() => setBillSent(false), 60000);

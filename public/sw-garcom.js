@@ -45,7 +45,9 @@ self.addEventListener('notificationclick', (event) => {
       // Se houver uma janela aberta do domínio, navega e foca nela
       for (const client of clients) {
         if ('focus' in client) {
-          client.navigate(urlToOpen);
+          if ('navigate' in client) {
+            return client.navigate(urlToOpen).then(() => client.focus());
+          }
           return client.focus();
         }
       }

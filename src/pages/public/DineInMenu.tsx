@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import type { Database } from '@/integrations/supabase/types';
 import { useRestaurantTheme } from '@/hooks/useRestaurantTheme';
 import PromoBanners from '@/components/PromoBanners';
+import { sendPushNewOrder, sendPushWaiterCall } from '@/lib/pushNotifications';
 
 type Product = Database['public']['Tables']['products']['Row'];
 
@@ -173,6 +174,12 @@ export default function DineInMenu() {
   const handleCallWaiter = async () => {
     if (!restaurant || !table) return;
     await publicSupabase.from('waiter_calls').insert({ restaurant_id: restaurant.id, table_id: table.id, type: 'call_waiter' });
+    sendPushWaiterCall(restaurant.id, {
+      call_id: crypto.randomUUID(),
+      table_label: table.label || `Mesa ${table.number}`,
+      table_number: table.number,
+      type: 'call_waiter',
+    }).catch(() => {});
     setCallSent(true);
     setShowCallConfirm(false);
     toast.success('Garçom chamado!');
@@ -182,6 +189,12 @@ export default function DineInMenu() {
   const handleRequestBill = async () => {
     if (!restaurant || !table) return;
     await publicSupabase.from('waiter_calls').insert({ restaurant_id: restaurant.id, table_id: table.id, type: 'request_bill' });
+    sendPushWaiterCall(restaurant.id, {
+      call_id: crypto.randomUUID(),
+      table_label: table.label || `Mesa ${table.number}`,
+      table_number: table.number,
+      type: 'request_bill',
+    }).catch(() => {});
     setBillSent(true);
     setShowBillConfirm(false);
     toast.success('Conta solicitada!');
@@ -250,6 +263,15 @@ export default function DineInMenu() {
 
       timestamps.push(now);
       sessionStorage.setItem(RATE_KEY, JSON.stringify(timestamps));
+
+      // Dispara push para os garçons e cozinha
+      sendPushNewOrder(restaurant.id, {
+        order_id: order.id,
+        customer_name: `Mesa ${tableNumber}`,
+        type: 'dine_in',
+        total: grandTotal,
+      }).catch(() => {});
+
       toast.success('Pedido enviado para a cozinha!');
       setCart([]);
       setCartOpen(false);

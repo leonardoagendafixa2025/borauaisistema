@@ -9,10 +9,10 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// VAPID public key — safe to be public (matches private in env)
-const VAPID_PUBLIC_KEY = "BMkpzoytZiuqXwE5Jo2ltua-FDxnx5gVc95jsNcXLbKNgeQUIG877urEy6B84aG8OiwXGnKd702nEunMSozAQqU";
-const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY")!;
-const VAPID_SUBJECT = Deno.env.get("VAPID_SUBJECT") ?? "mailto:contato@borauai.lovable.app";
+// VAPID keys unificadas com frontend e API
+const VAPID_PUBLIC_KEY = Deno.env.get("VAPID_PUBLIC_KEY") || "BJOZteu5NRKarKGeaue3DpKROnNvf90eviVFKCUn0eq-ZtCekAfRRnOGfYBk8y29Y6JyqO2kUaZDBc1bCPdTjag";
+const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY") || "b7p7vyy2HlmcmWzZ91na780C18tcFONv8c6DrMyBfQY";
+const VAPID_SUBJECT = Deno.env.get("VAPID_SUBJECT") || "mailto:contato@borauai.com";
 
 webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 
