@@ -141,31 +141,31 @@ export default function PartialPaymentDialog({ open, onOpenChange, table, onTabl
       toast.error(`Ainda falta ${fmt(remaining)} para fechar a mesa`);
       return;
     }
-    // Mark partials as closed
-    await (supabase as any)
-      .from('table_partial_payments')
-      .update({ closed: true })
-      .eq('table_id', table.id)
-      .eq('closed', false);
+    setSubmitting(true);
+    try {
+      const { data, error } = await (supabase.rpc as any)('close_table_settlement', {
+        _table_id: table.id,
+        _restaurant_id: restaurantId,
+        _close_unpaid: true,
+        _user_id: user?.id || null,
+      });
 
-    // Mark orders as completed (if not already)
-    await supabase
-      .from('orders')
-      .update({ status: 'completed' as any })
-      .eq('table_id', table.id)
-      .in('status', ['new', 'accepted', 'preparing', 'ready'] as any);
+      if (error || (data && !data.success)) {
+        toast.error(`Erro ao fechar mesa: ${error?.message || data?.error || 'tente novamente'}`);
+        return;
+      }
 
-    // Free the table
-    await supabase.from('restaurant_tables').update({ status: 'available' }).eq('id', table.id);
-
-    // End sessions
-    await (supabase as any).from('table_sessions').update({ status: 'closed' }).eq('table_id', table.id).eq('status', 'active');
-
-    queryClient.invalidateQueries({ queryKey: ['tables', restaurantId] });
-    queryClient.invalidateQueries({ queryKey: ['orders', restaurantId] });
-    toast.success('Mesa fechada com sucesso! 🎉');
-    onOpenChange(false);
-    onTableClosed?.();
+      queryClient.invalidateQueries({ queryKey: ['tables', restaurantId] });
+      queryClient.invalidateQueries({ queryKey: ['orders', restaurantId] });
+      queryClient.invalidateQueries({ queryKey: ['table-partials-all', restaurantId] });
+      toast.success('Mesa fechada com sucesso! 🎉');
+      onOpenChange(false);
+      onTableClosed?.();
+    } catch (err: any) {
+      toast.error(`Erro inesperado ao fechar mesa: ${err?.message || 'tente novamente'}`);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (!table) return null;

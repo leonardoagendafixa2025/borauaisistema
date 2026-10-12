@@ -29,7 +29,7 @@ export default function AdminSidebar() {
   const collapsed = state === 'collapsed';
   const { pathname } = useLocation();
   const navigate = useNavigate();
-  const { signOut } = useAuth();
+  const { signOut, restaurantId, availableStores, switchRestaurant } = useAuth();
   const { data: restaurant } = useRestaurant();
   const plan = usePlanFeatures();
   const pwaGarcom = usePWAInstall();
@@ -95,6 +95,24 @@ export default function AdminSidebar() {
             </div>
           )}
         </NavLink>
+        {availableStores.length > 1 && !collapsed && (
+          <div className="px-2 pb-2 pt-0.5">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">
+              Trocar Filial
+            </label>
+            <select
+              value={restaurantId || ''}
+              onChange={(e) => switchRestaurant(e.target.value)}
+              className="w-full text-xs font-semibold rounded-lg border border-sidebar-border bg-sidebar-accent/50 px-2 py-1.5 text-sidebar-foreground focus:outline-none focus:ring-1 focus:ring-sidebar-ring cursor-pointer"
+            >
+              {availableStores.map(s => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </SidebarHeader>
 
       <SidebarContent className="py-2">

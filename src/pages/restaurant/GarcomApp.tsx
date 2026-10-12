@@ -305,6 +305,7 @@ export default function GarcomApp() {
           subtotal,
           total: subtotal,
           status: 'new' as any,
+          served_by: user?.id || null,
         })
         .select()
         .single();
@@ -330,6 +331,7 @@ export default function GarcomApp() {
       setSubmitting(false);
       toast.success('Pedido enviado para a cozinha! 🚀');
       queryClient.invalidateQueries({ queryKey: ['orders', restaurantId] });
+      queryClient.invalidateQueries({ queryKey: ['my-sales'] });
     } else {
       // Offline queue
       await offlineDb.pendingOrders.add({
@@ -341,6 +343,7 @@ export default function GarcomApp() {
         items,
         subtotal,
         total: subtotal,
+        servedBy: user?.id || null,
         createdAt: Date.now(),
         attempts: 0,
         status: 'pending',

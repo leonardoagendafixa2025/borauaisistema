@@ -35,7 +35,7 @@ vi.mock('@/integrations/supabase/public-client', () => {
         return chain;
       },
       maybeSingle: async () => {
-        if (table === 'restaurants' && state.filters.slug === 'boteco-do-ze') {
+        if ((table === 'restaurants' || table === 'restaurants_public') && state.filters.slug === 'boteco-do-ze') {
           return { data: restaurant, error: null };
         }
         return { data: null, error: null };

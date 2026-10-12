@@ -109,7 +109,7 @@ export default function InventoryPage() {
   const handleSave = async () => {
     if (!form.name.trim()) { toast.error('Nome é obrigatório'); return; }
     if (editing) {
-      await supabase.from('inventory_items').update({
+      const { error } = await supabase.from('inventory_items').update({
         name: form.name,
         unit: form.unit,
         current_stock: form.current_stock,
@@ -117,9 +117,13 @@ export default function InventoryPage() {
         cost_per_unit: form.cost_per_unit,
         supplier: form.supplier || null,
       }).eq('id', editing.id);
+      if (error) {
+        toast.error('Erro ao atualizar insumo: ' + error.message);
+        return;
+      }
       toast.success('Insumo atualizado!');
     } else {
-      await supabase.from('inventory_items').insert({
+      const { error } = await supabase.from('inventory_items').insert({
         restaurant_id: restaurantId!,
         name: form.name,
         unit: form.unit,
@@ -128,6 +132,10 @@ export default function InventoryPage() {
         cost_per_unit: form.cost_per_unit,
         supplier: form.supplier || null,
       });
+      if (error) {
+        toast.error('Erro ao cadastrar insumo: ' + error.message);
+        return;
+      }
       toast.success('Insumo cadastrado!');
     }
     setDialogOpen(false);
@@ -136,7 +144,11 @@ export default function InventoryPage() {
   };
 
   const handleDelete = async (id: string) => {
-    await supabase.from('inventory_items').update({ active: false } as any).eq('id', id);
+    const { error } = await supabase.from('inventory_items').update({ active: false } as any).eq('id', id);
+    if (error) {
+      toast.error('Erro ao remover insumo: ' + error.message);
+      return;
+    }
     toast.success('Insumo removido');
     invalidate();
   };
@@ -144,9 +156,13 @@ export default function InventoryPage() {
   const handleAddStock = async (item: any) => {
     const qty = prompt(`Adicionar estoque de "${item.name}" (${item.unit}):`);
     if (!qty || isNaN(Number(qty))) return;
-    await supabase.from('inventory_items').update({
+    const { error } = await supabase.from('inventory_items').update({
       current_stock: item.current_stock + Number(qty),
     }).eq('id', item.id);
+    if (error) {
+      toast.error('Erro ao atualizar estoque: ' + error.message);
+      return;
+    }
     toast.success(`+${qty} ${item.unit} adicionado`);
     invalidate();
     sendTelegramAlert();
@@ -166,17 +182,25 @@ export default function InventoryPage() {
   const linkProduct = async (productId: string) => {
     const qtyStr = prompt('Quantidade usada por unidade do produto:');
     if (!qtyStr || isNaN(Number(qtyStr))) return;
-    await supabase.from('product_ingredients').insert({
+    const { error } = await supabase.from('product_ingredients').insert({
       product_id: productId,
       inventory_item_id: linkItem.id,
       quantity_used: Number(qtyStr),
     });
+    if (error) {
+      toast.error('Erro ao vincular produto: ' + error.message);
+      return;
+    }
     toast.success('Produto vinculado!');
     invalidate();
   };
 
   const unlinkProduct = async (piId: string) => {
-    await supabase.from('product_ingredients').delete().eq('id', piId);
+    const { error } = await supabase.from('product_ingredients').delete().eq('id', piId);
+    if (error) {
+      toast.error('Erro ao desvincular produto: ' + error.message);
+      return;
+    }
     toast.success('Vínculo removido');
     invalidate();
   };

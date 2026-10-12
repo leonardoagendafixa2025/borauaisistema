@@ -119,7 +119,7 @@ vi.mock('@/integrations/supabase/public-client', () => {
         return chain;
       },
       maybeSingle: async () => {
-        if (table === 'restaurants') {
+        if (table === 'restaurants' || table === 'restaurants_public') {
           const slug = state.filters.slug;
           const t = (TENANTS as any)[slug];
           return { data: t || null, error: null };

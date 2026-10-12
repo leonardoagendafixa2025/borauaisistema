@@ -8,6 +8,11 @@ type UserRole = { role: AppRole; restaurant_id: string | null };
 const ROLE_FETCH_TIMEOUT_MS = 5000;
 const ROLE_CACHE_MS = 30000;
 
+export interface AvailableStore {
+  id: string;
+  name: string;
+}
+
 interface AuthContextType {
   session: Session | null;
   user: User | null;
@@ -15,9 +20,12 @@ interface AuthContextType {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null; roles: { role: AppRole; restaurant_id: string | null }[] }>;
   signUp: (email: string, password: string, fullName: string) => Promise<{ error: Error | null }>;
+  resetPassword: (email: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   isMasterAdmin: boolean;
   restaurantId: string | null;
+  availableStores: AvailableStore[];
+  switchRestaurant: (storeId: string) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -26,6 +34,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [roles, setRoles] = useState<UserRole[]>([]);
+  const [availableStores, setAvailableStores] = useState<AvailableStore[]>([]);
+  const [activeRestaurantId, setActiveRestaurantId] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('borauai_active_restaurant_id') || null;
+    } catch {
+      return null;
+    }
+  });
   const [loading, setLoading] = useState(true);
   const [rolesLoading, setRolesLoading] = useState(false);
   const rolesRequestRef = useRef(0);
@@ -42,6 +58,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     lastFetchedUserIdRef.current = null;
     rolesFetchRef.current = null;
     setRoles([]);
+    setAvailableStores([]);
+    try {
+      localStorage.removeItem('borauai_active_restaurant_id');
+    } catch {}
+    setActiveRestaurantId(null);
     setRolesLoading(false);
   }, []);
 
@@ -72,6 +93,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         rolesFetchedAtRef.current = Date.now();
         lastFetchedUserIdRef.current = userId;
         setRoles(result);
+
+        // Fetch store names for multi-unit selection
+        const storeIds = Array.from(new Set(result.map(r => r.restaurant_id).filter(Boolean))) as string[];
+        if (storeIds.length > 0) {
+          try {
+            const { data: stores } = await supabase
+              .from('restaurants')
+              .select('id, name')
+              .in('id', storeIds);
+            setAvailableStores((stores || []) as AvailableStore[]);
+          } catch {
+            setAvailableStores(storeIds.map(id => ({ id, name: 'Restaurante' })));
+          }
+        } else {
+          setAvailableStores([]);
+        }
+
         return result;
       } catch (err: any) {
         const message = err?.name === 'AbortError' ? 'roles_timeout' : err?.message;
@@ -154,16 +192,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error as Error | null };
   };
 
+  const resetPassword = async (email: string) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+      redirectTo: `${window.location.origin}/redefinir-senha`,
+    });
+    return { error: error as Error | null };
+  };
+
   const signOut = async () => {
+    try {
+      localStorage.removeItem('borauai_active_restaurant_id');
+    } catch {}
+    setActiveRestaurantId(null);
+    setAvailableStores([]);
     await supabase.auth.signOut();
   };
 
   const isMasterAdmin = roles.some(r => ['super_admin', 'finance', 'support', 'commercial'].includes(r.role));
-  const restaurantRole = roles.find(r => r.restaurant_id);
-  const restaurantId = restaurantRole?.restaurant_id ?? null;
+  const availableStoreIds = availableStores.map(s => s.id);
+  const effectiveRestaurantId = (activeRestaurantId && (availableStoreIds.includes(activeRestaurantId) || roles.some(r => r.restaurant_id === activeRestaurantId)))
+    ? activeRestaurantId
+    : (roles.find(r => r.restaurant_id)?.restaurant_id ?? null);
+
+  const switchRestaurant = useCallback((storeId: string) => {
+    setActiveRestaurantId(storeId);
+    try {
+      localStorage.setItem('borauai_active_restaurant_id', storeId);
+    } catch {}
+    window.location.reload();
+  }, []);
 
   return (
-    <AuthContext.Provider value={{ session, user, roles, loading: loading || rolesLoading, signIn, signUp, signOut, isMasterAdmin, restaurantId }}>
+    <AuthContext.Provider value={{
+      session,
+      user,
+      roles,
+      loading: loading || rolesLoading,
+      signIn,
+      signUp,
+      resetPassword,
+      signOut,
+      isMasterAdmin,
+      restaurantId: effectiveRestaurantId,
+      availableStores,
+      switchRestaurant,
+    }}>
       {children}
     </AuthContext.Provider>
   );

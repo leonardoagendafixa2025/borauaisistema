@@ -100,11 +100,50 @@ export type Database = {
         }
         Relationships: []
       }
+      cashier_movements: {
+        Row: {
+          amount: number
+          created_at: string
+          created_by: string
+          id: string
+          reason: string
+          restaurant_id: string
+          session_id: string
+          type: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          created_by: string
+          id?: string
+          reason: string
+          restaurant_id: string
+          session_id: string
+          type: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          created_by?: string
+          id?: string
+          reason?: string
+          restaurant_id?: string
+          session_id?: string
+          type?: string
+        }
+        Relationships: []
+      }
       cashier_sessions: {
         Row: {
+          cash_difference: number | null
           closed_at: string | null
+          closed_by: string | null
+          closed_cash: number | null
           created_at: string
+          expected_cash: number | null
           id: string
+          initial_cash: number
+          notes: string | null
           opened_at: string
           opened_by: string
           restaurant_id: string
@@ -112,9 +151,15 @@ export type Database = {
           total_revenue: number
         }
         Insert: {
+          cash_difference?: number | null
           closed_at?: string | null
+          closed_by?: string | null
+          closed_cash?: number | null
           created_at?: string
+          expected_cash?: number | null
           id?: string
+          initial_cash?: number
+          notes?: string | null
           opened_at?: string
           opened_by: string
           restaurant_id: string
@@ -122,9 +167,15 @@ export type Database = {
           total_revenue?: number
         }
         Update: {
+          cash_difference?: number | null
           closed_at?: string | null
+          closed_by?: string | null
+          closed_cash?: number | null
           created_at?: string
+          expected_cash?: number | null
           id?: string
+          initial_cash?: number
+          notes?: string | null
           opened_at?: string
           opened_by?: string
           restaurant_id?: string
@@ -1305,6 +1356,7 @@ export type Database = {
           sla_acknowledged_at: string | null
           sla_alert_sent_at: string | null
           status: Database["public"]["Enums"]["order_status"]
+          stock_deducted: boolean
           subtotal: number
           table_id: string | null
           total: number
@@ -1341,6 +1393,7 @@ export type Database = {
           sla_acknowledged_at?: string | null
           sla_alert_sent_at?: string | null
           status?: Database["public"]["Enums"]["order_status"]
+          stock_deducted?: boolean
           subtotal?: number
           table_id?: string | null
           total?: number
@@ -1377,6 +1430,7 @@ export type Database = {
           sla_acknowledged_at?: string | null
           sla_alert_sent_at?: string | null
           status?: Database["public"]["Enums"]["order_status"]
+          stock_deducted?: boolean
           subtotal?: number
           table_id?: string | null
           total?: number
@@ -3176,6 +3230,16 @@ export type Database = {
       }
     }
     Functions: {
+      close_table_settlement: {
+        Args: {
+          _table_id: string
+          _restaurant_id: string
+          _payment_method?: string | null
+          _close_unpaid?: boolean
+          _user_id?: string | null
+        }
+        Returns: Json
+      }
       approve_music_request: { Args: { _request_id: string }; Returns: Json }
       can_insert_recent_public_order_item: {
         Args: { _order_id: string }

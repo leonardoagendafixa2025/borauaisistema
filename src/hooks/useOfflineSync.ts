@@ -92,6 +92,7 @@ async function syncOrder(item: PendingOrder) {
       subtotal: item.subtotal,
       total: item.total,
       notes: item.notes || null,
+      served_by: item.servedBy || null,
       status: 'new' as any,
     })
     .select()

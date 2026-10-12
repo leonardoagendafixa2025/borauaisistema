@@ -956,6 +956,12 @@ CREATE TABLE public.cashier_sessions (
   closed_at timestamptz,
   total_revenue numeric NOT NULL DEFAULT 0,
   total_orders integer NOT NULL DEFAULT 0,
+  initial_cash numeric NOT NULL DEFAULT 0,
+  closed_by uuid,
+  closed_cash numeric,
+  expected_cash numeric,
+  cash_difference numeric,
+  notes text,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -970,6 +976,137 @@ ON public.cashier_sessions FOR ALL
 USING (has_role(auth.uid(), 'super_admin'::app_role));
 
 CREATE INDEX idx_cashier_sessions_restaurant ON public.cashier_sessions(restaurant_id, opened_at DESC);
+
+-- Cashier movements (suprimentos e sangrias)
+CREATE TABLE IF NOT EXISTS public.cashier_movements (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id uuid NOT NULL REFERENCES public.cashier_sessions(id) ON DELETE CASCADE,
+  restaurant_id uuid NOT NULL REFERENCES public.restaurants(id) ON DELETE CASCADE,
+  type text NOT NULL CHECK (type IN ('supply', 'bleed')),
+  amount numeric NOT NULL CHECK (amount > 0),
+  reason text NOT NULL,
+  created_by uuid NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.cashier_movements ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Restaurant staff can manage cashier movements"
+ON public.cashier_movements FOR ALL
+USING (has_restaurant_role(auth.uid(), restaurant_id))
+WITH CHECK (has_restaurant_role(auth.uid(), restaurant_id));
+
+CREATE POLICY "Super admins full access cashier movements"
+ON public.cashier_movements FOR ALL
+USING (has_role(auth.uid(), 'super_admin'::app_role))
+WITH CHECK (has_role(auth.uid(), 'super_admin'::app_role));
+
+CREATE INDEX IF NOT EXISTS idx_cashier_movements_session ON public.cashier_movements(session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cashier_movements_restaurant ON public.cashier_movements(restaurant_id);
+
+-- Atomic Table Settlement RPC
+CREATE OR REPLACE FUNCTION public.close_table_settlement(
+  _table_id uuid,
+  _restaurant_id uuid,
+  _payment_method text DEFAULT NULL,
+  _close_unpaid boolean DEFAULT false,
+  _user_id uuid DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  _total_orders numeric := 0;
+  _total_paid numeric := 0;
+  _remaining numeric := 0;
+  _orders_count int := 0;
+BEGIN
+  IF auth.uid() IS NOT NULL AND NOT (
+    has_restaurant_role(auth.uid(), _restaurant_id) OR has_role(auth.uid(), 'super_admin'::app_role)
+  ) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Acesso negado.');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.restaurant_tables
+    WHERE id = _table_id AND restaurant_id = _restaurant_id
+  ) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Mesa não encontrada ou não pertence ao restaurante.');
+  END IF;
+
+  SELECT COALESCE(SUM(total), 0), COUNT(id)
+  INTO _total_orders, _orders_count
+  FROM public.orders
+  WHERE table_id = _table_id
+    AND status NOT IN ('completed', 'cancelled');
+
+  SELECT COALESCE(SUM(amount), 0)
+  INTO _total_paid
+  FROM public.table_partial_payments
+  WHERE table_id = _table_id
+    AND closed = false;
+
+  _remaining := GREATEST(0, _total_orders - _total_paid);
+
+  IF _remaining > 0.01 AND NOT _close_unpaid THEN
+    IF _payment_method IS NOT NULL AND _payment_method <> '' THEN
+      INSERT INTO public.table_partial_payments (
+        restaurant_id, table_id, amount, people_count, payment_method, paid_by, created_by, closed
+      ) VALUES (
+        _restaurant_id, _table_id, _remaining, 1, _payment_method, 'Fechamento de Mesa', _user_id, true
+      );
+
+      INSERT INTO public.financial_transactions (
+        restaurant_id, amount, type, description
+      ) VALUES (
+        _restaurant_id, _remaining, 'order_revenue', 'Fechamento de mesa (' || _payment_method || ')'
+      );
+    ELSE
+      RETURN jsonb_build_object(
+        'success', false,
+        'reason', 'unpaid_balance',
+        'remaining', _remaining,
+        'total_orders', _total_orders,
+        'total_paid', _total_paid
+      );
+    END IF;
+  END IF;
+
+  UPDATE public.table_partial_payments
+  SET closed = true
+  WHERE table_id = _table_id AND closed = false;
+
+  UPDATE public.table_commands
+  SET status = 'closed', closed_at = now(), updated_at = now()
+  WHERE table_id = _table_id AND status = 'open';
+
+  UPDATE public.table_sessions
+  SET status = 'closed'
+  WHERE table_id = _table_id AND status = 'active';
+
+  IF _orders_count > 0 THEN
+    UPDATE public.orders
+    SET status = 'completed',
+        payment_status = 'paid',
+        payment_method = COALESCE(payment_method, _payment_method, 'multiple')
+    WHERE table_id = _table_id
+      AND status NOT IN ('completed', 'cancelled');
+  END IF;
+
+  UPDATE public.restaurant_tables
+  SET status = 'available'
+  WHERE id = _table_id;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'table_id', _table_id,
+    'settled_amount', _remaining,
+    'orders_closed', _orders_count
+  );
+END;
+$$;
 
 -- >>> MIGRATION: 20260406190602_86babe52-6aeb-48b3-8b6c-297be298e186.sql <<<
 -- Allow anon and authenticated to insert customers (auto-create from public orders)
@@ -1094,7 +1231,9 @@ CREATE TRIGGER update_inventory_items_updated_at
   BEFORE UPDATE ON public.inventory_items
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
--- Function to deduct stock when order is completed
+-- Function to deduct stock when order is accepted/ready and restore on cancellation
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS stock_deducted boolean NOT NULL DEFAULT false;
+
 CREATE OR REPLACE FUNCTION public.deduct_stock_on_order()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -1102,33 +1241,67 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-  -- Only deduct when status changes to 'accepted'
-  IF NEW.status = 'accepted' AND OLD.status = 'new' THEN
-    UPDATE inventory_items ii
-    SET current_stock = ii.current_stock - (pi.quantity_used * oi.qty)
-    FROM order_items oi
-    JOIN product_ingredients pi ON pi.product_id = oi.product_id
-    WHERE oi.order_id = NEW.id
-    AND pi.inventory_item_id = ii.id;
+  -- 1) DEDUCTION: When order transitions to any active/ready/completed state and stock was not yet deducted
+  IF (NEW.status IN ('accepted', 'preparing', 'ready', 'waiting_pickup', 'delivering', 'completed'))
+     AND (COALESCE(OLD.stock_deducted, false) = false) THEN
 
-    -- Auto mark products as sold_out if any ingredient is below min
-    UPDATE products p
+    -- Deduct inventory based on recipes / ingredients
+    UPDATE public.inventory_items ii
+    SET current_stock = ii.current_stock - (pi.quantity_used * oi.qty)
+    FROM public.order_items oi
+    JOIN public.product_ingredients pi ON pi.product_id = oi.product_id
+    WHERE oi.order_id = NEW.id
+      AND pi.inventory_item_id = ii.id;
+
+    -- Mark products as sold_out if any ingredient is now below or equal to min_stock
+    UPDATE public.products p
     SET sold_out = true
     WHERE p.restaurant_id = NEW.restaurant_id
-    AND p.sold_out = false
-    AND EXISTS (
-      SELECT 1 FROM product_ingredients pi2
-      JOIN inventory_items ii2 ON ii2.id = pi2.inventory_item_id
-      WHERE pi2.product_id = p.id
-      AND ii2.current_stock <= ii2.min_stock
-    );
+      AND p.sold_out = false
+      AND EXISTS (
+        SELECT 1 FROM public.product_ingredients pi2
+        JOIN public.inventory_items ii2 ON ii2.id = pi2.inventory_item_id
+        WHERE pi2.product_id = p.id
+          AND ii2.current_stock <= ii2.min_stock
+      );
+
+    NEW.stock_deducted := true;
   END IF;
+
+  -- 2) RESTORATION: When order is cancelled after stock was previously deducted
+  IF (NEW.status = 'cancelled')
+     AND (COALESCE(OLD.stock_deducted, false) = true) THEN
+
+    -- Restore inventory
+    UPDATE public.inventory_items ii
+    SET current_stock = ii.current_stock + (pi.quantity_used * oi.qty)
+    FROM public.order_items oi
+    JOIN public.product_ingredients pi ON pi.product_id = oi.product_id
+    WHERE oi.order_id = NEW.id
+      AND pi.inventory_item_id = ii.id;
+
+    -- Re-enable products (unmark sold_out) if all ingredients are now above min_stock
+    UPDATE public.products p
+    SET sold_out = false
+    WHERE p.restaurant_id = NEW.restaurant_id
+      AND p.sold_out = true
+      AND NOT EXISTS (
+        SELECT 1 FROM public.product_ingredients pi3
+        JOIN public.inventory_items ii3 ON ii3.id = pi3.inventory_item_id
+        WHERE pi3.product_id = p.id
+          AND ii3.current_stock <= ii3.min_stock
+      );
+
+    NEW.stock_deducted := false;
+  END IF;
+
   RETURN NEW;
 END;
 $$;
 
+DROP TRIGGER IF EXISTS deduct_stock_trigger ON public.orders;
 CREATE TRIGGER deduct_stock_trigger
-  AFTER UPDATE ON public.orders
+  BEFORE UPDATE ON public.orders
   FOR EACH ROW EXECUTE FUNCTION public.deduct_stock_on_order();
 
 -- Indexes
@@ -5222,3 +5395,91 @@ WHERE tier = 'professional';
 UPDATE public.subscription_plans 
 SET price = 199.99 
 WHERE tier = 'premium';
+
+-- >>> MIGRATION: 20261011185000_price_validation_and_tamper_protection.sql <<<
+CREATE OR REPLACE FUNCTION public.validate_order_item_price()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  _catalog_price numeric;
+  _opts_total numeric := 0;
+  _opt_elem jsonb;
+BEGIN
+  IF NEW.product_id IS NOT NULL THEN
+    SELECT price INTO _catalog_price
+    FROM public.products
+    WHERE id = NEW.product_id;
+
+    IF _catalog_price IS NOT NULL AND _catalog_price > 0 THEN
+      IF NEW.unit_price IS NULL OR NEW.unit_price < _catalog_price THEN
+        NEW.unit_price := _catalog_price;
+      END IF;
+    END IF;
+  END IF;
+
+  IF NEW.options IS NOT NULL AND jsonb_typeof(to_jsonb(NEW.options)) = 'array' THEN
+    FOR _opt_elem IN SELECT * FROM jsonb_array_elements(to_jsonb(NEW.options)) LOOP
+      _opts_total := _opts_total + COALESCE((_opt_elem->>'price')::numeric, 0);
+    END LOOP;
+  END IF;
+
+  IF NEW.qty IS NULL OR NEW.qty <= 0 THEN
+    NEW.qty := 1;
+  END IF;
+
+  IF NEW.total_price IS NULL OR NEW.total_price < ((COALESCE(NEW.unit_price, 0) + _opts_total) * NEW.qty) THEN
+    NEW.total_price := (COALESCE(NEW.unit_price, 0) + _opts_total) * NEW.qty;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_validate_order_item_price ON public.order_items;
+CREATE TRIGGER trg_validate_order_item_price
+  BEFORE INSERT OR UPDATE ON public.order_items
+  FOR EACH ROW
+  EXECUTE FUNCTION public.validate_order_item_price();
+
+CREATE OR REPLACE FUNCTION public.recalculate_order_totals()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  _target_order_id uuid;
+  _items_subtotal numeric;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    _target_order_id := OLD.order_id;
+  ELSE
+    _target_order_id := NEW.order_id;
+  END IF;
+
+  SELECT COALESCE(SUM(total_price), 0)
+  INTO _items_subtotal
+  FROM public.order_items
+  WHERE order_id = _target_order_id;
+
+  IF _items_subtotal > 0 THEN
+    UPDATE public.orders
+    SET subtotal = _items_subtotal,
+        total = GREATEST(0, _items_subtotal + COALESCE(delivery_fee, 0) - COALESCE(discount, 0)),
+        updated_at = now()
+    WHERE id = _target_order_id;
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_recalculate_order_totals ON public.order_items;
+CREATE TRIGGER trg_recalculate_order_totals
+  AFTER INSERT OR UPDATE OR DELETE ON public.order_items
+  FOR EACH ROW
+  EXECUTE FUNCTION public.recalculate_order_totals();
+

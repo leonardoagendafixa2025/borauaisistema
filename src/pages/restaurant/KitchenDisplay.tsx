@@ -322,6 +322,8 @@ export default function KitchenDisplay() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allOrders, now]);
 
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+
   const updateStatus = async (orderId: string, newStatus: OrderStatus) => {
     let finalStatus = newStatus;
     // Differentiate ready by order type
@@ -329,9 +331,21 @@ export default function KitchenDisplay() {
       const order = orders.find(o => o.id === orderId);
       if (order?.type === 'pickup') finalStatus = 'waiting_pickup';
     }
-    await supabase.from('orders').update({ status: finalStatus }).eq('id', orderId);
-    queryClient.invalidateQueries({ queryKey: ['orders', restaurantId] });
-    toast.success(`Pedido atualizado para ${finalStatus === 'waiting_pickup' ? 'aguardando retirada' : finalStatus}`);
+    setUpdatingId(orderId);
+    try {
+      const { error } = await supabase.from('orders').update({ status: finalStatus }).eq('id', orderId);
+      if (error) {
+        toast.error(`Falha ao atualizar pedido: ${error.message}`);
+        return;
+      }
+      queryClient.invalidateQueries({ queryKey: ['orders', restaurantId] });
+      const statusLabel = finalStatus === 'waiting_pickup' ? 'aguardando retirada' : finalStatus === 'ready' ? 'pronto' : finalStatus === 'preparing' ? 'em preparo' : finalStatus === 'accepted' ? 'aceito' : finalStatus;
+      toast.success(`Pedido atualizado para ${statusLabel}`);
+    } catch (err: any) {
+      toast.error(`Erro de comunicação: ${err?.message || 'Verifique sua conexão.'}`);
+    } finally {
+      setUpdatingId(null);
+    }
   };
 
 

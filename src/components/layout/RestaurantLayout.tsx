@@ -12,11 +12,13 @@ import { useTheme } from '@/hooks/useTheme';
 import { useRestaurant, useRestaurantSettings } from '@/hooks/useRestaurantData';
 import { useRestaurantTheme } from '@/hooks/useRestaurantTheme';
 import { usePlanFeatures } from '@/hooks/usePlanFeatures';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function RestaurantLayout({ children }: { children: ReactNode }) {
   const { theme: themeMode, toggle: toggleDarkMode } = useTheme();
   const darkMode = themeMode === 'dark';
 
+  const { restaurantId, availableStores, switchRestaurant } = useAuth();
   const { data: restaurant } = useRestaurant();
   const { data: settings } = useRestaurantSettings();
   const plan = usePlanFeatures();
@@ -36,6 +38,20 @@ export default function RestaurantLayout({ children }: { children: ReactNode }) 
 
             <div className="flex items-center gap-2 min-w-0 flex-1">
               <AdminBreadcrumbs />
+              {availableStores.length > 1 && (
+                <select
+                  value={restaurantId || ''}
+                  onChange={(e) => switchRestaurant(e.target.value)}
+                  className="hidden sm:inline-flex text-[11px] font-bold rounded-lg border border-border bg-muted/60 px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer max-w-[140px] truncate"
+                  title="Trocar de filial/restaurante"
+                >
+                  {availableStores.map(s => (
+                    <option key={s.id} value={s.id}>
+                      🏪 {s.name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
 
             {/* Center: live status bar */}

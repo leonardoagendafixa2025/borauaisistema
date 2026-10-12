@@ -157,57 +157,114 @@ export default function TablesPage() {
   const [closingTableId, setClosingTableId] = useState<string | null>(null);
   const [justClosedId, setJustClosedId] = useState<string | null>(null);
 
-  const handleCloseTable = async (tableId: string, tableLabel: string) => {
+  const [settlementModal, setSettlementModal] = useState<{
+    open: boolean;
+    tableId: string;
+    tableNumber: number;
+    tableLabel: string;
+    totalOrders: number;
+    totalPaid: number;
+    remaining: number;
+    openOrdersCount: number;
+  } | null>(null);
+  const [settlementMethod, setSettlementMethod] = useState<'pix' | 'cash' | 'credit_card' | 'debit_card'>('pix');
+  const [submittingSettlement, setSubmittingSettlement] = useState(false);
+
+  const executeAtomicClose = async (
+    tableId: string,
+    tableLabel: string,
+    paymentMethod: string | null,
+    closeUnpaid: boolean
+  ) => {
     if (!restaurantId) return;
-
-    const [{ count: openOrders }, { count: openCommands }, { count: openPartials }] = await Promise.all([
-      supabase.from('orders').select('id', { count: 'exact', head: true })
-        .eq('table_id', tableId).not('status', 'in', '(completed,cancelled)'),
-      (supabase as any).from('table_commands').select('id', { count: 'exact', head: true })
-        .eq('table_id', tableId).eq('status', 'open'),
-      (supabase as any).from('table_partial_payments').select('id', { count: 'exact', head: true })
-        .eq('table_id', tableId).eq('closed', false),
-    ]);
-
-    const summary: string[] = [];
-    if (openOrders) summary.push(`${openOrders} pedido(s) em aberto`);
-    if (openCommands) summary.push(`${openCommands} comanda(s) aberta(s)`);
-    if (openPartials) summary.push(`${openPartials} pagamento(s) parcial(is)`);
-
-    const msg = summary.length
-      ? `Fechar ${tableLabel}?\n\nIsso vai:\n• Liberar a mesa (status: Livre)\n• Encerrar sessões ativas dos clientes\n• Finalizar: ${summary.join(', ')}\n\nConfirma?`
-      : `Fechar ${tableLabel}?\n\nA mesa será liberada (status: Livre) e qualquer sessão ativa de cliente será encerrada.`;
-
-    if (!confirm(msg)) return;
-
     setClosingTableId(tableId);
+    setSubmittingSettlement(true);
     try {
-      await supabase.from('restaurant_tables').update({ status: 'available' }).eq('id', tableId);
-      await (supabase as any).from('table_sessions').update({ status: 'closed' })
-        .eq('table_id', tableId).eq('status', 'active');
-      await (supabase as any).from('table_commands').update({ status: 'closed', closed_at: new Date().toISOString() })
-        .eq('table_id', tableId).eq('status', 'open');
-      await (supabase as any).from('table_partial_payments').update({ closed: true })
-        .eq('table_id', tableId).eq('closed', false);
-      if (openOrders) {
-        await supabase.from('orders').update({ status: 'completed' as any })
-          .eq('table_id', tableId).not('status', 'in', '(completed,cancelled)');
+      const { data, error } = await (supabase.rpc as any)('close_table_settlement', {
+        _table_id: tableId,
+        _restaurant_id: restaurantId,
+        _payment_method: paymentMethod,
+        _close_unpaid: closeUnpaid,
+        _user_id: user?.id || null,
+      });
+
+      if (error) {
+        toast.error(`Erro ao fechar mesa: ${error.message}`);
+        return;
+      }
+
+      if (data && !data.success) {
+        toast.error(`Aviso: ${data.error || 'Saldo pendente não quitado.'}`);
+        return;
       }
 
       queryClient.invalidateQueries({ queryKey: ['tables', restaurantId] });
       queryClient.invalidateQueries({ queryKey: ['table-partials-all', restaurantId] });
+      queryClient.invalidateQueries({ queryKey: ['orders', restaurantId] });
       refetchSessions();
       refetchPartials();
 
       setJustClosedId(tableId);
       setTimeout(() => setJustClosedId(null), 2500);
 
-      toast.success(`✓ ${tableLabel} fechada e liberada`, {
-        description: summary.length ? `Finalizado: ${summary.join(', ')}` : 'Mesa pronta para novo cliente',
+      toast.success(`✓ ${tableLabel} fechada e liberada com sucesso!`, {
+        description: paymentMethod ? `Quitado via ${paymentMethod.toUpperCase()}` : 'Mesa pronta para novo cliente',
       });
+      setSettlementModal(null);
     } catch (err: any) {
-      toast.error(`Erro ao fechar mesa: ${err?.message || 'tente novamente'}`);
+      toast.error(`Erro inesperado ao fechar mesa: ${err?.message || 'tente novamente'}`);
     } finally {
+      setClosingTableId(null);
+      setSubmittingSettlement(false);
+    }
+  };
+
+  const handleCloseTable = async (table: typeof tables[0]) => {
+    if (!restaurantId) return;
+    const tableId = table.id;
+    const tableLabel = table.label || `Mesa ${table.number}`;
+
+    setClosingTableId(tableId);
+    try {
+      const [{ data: openOrdersData }, { data: openPartialsData }] = await Promise.all([
+        supabase.from('orders')
+          .select('id, total')
+          .eq('table_id', tableId)
+          .not('status', 'in', '(completed,cancelled)'),
+        (supabase as any).from('table_partial_payments')
+          .select('id, amount')
+          .eq('table_id', tableId)
+          .eq('closed', false),
+      ]);
+
+      const totalOrders = (openOrdersData || []).reduce((s: number, o: any) => s + Number(o.total || 0), 0);
+      const totalPaid = (openPartialsData || []).reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
+      const remaining = Math.max(0, totalOrders - totalPaid);
+
+      // If unpaid balance exists, open settlement dialog
+      if (remaining > 0.01) {
+        setClosingTableId(null);
+        setSettlementModal({
+          open: true,
+          tableId,
+          tableNumber: table.number,
+          tableLabel,
+          totalOrders,
+          totalPaid,
+          remaining,
+          openOrdersCount: openOrdersData?.length || 0,
+        });
+        return;
+      }
+
+      if (!confirm(`Fechar ${tableLabel} e liberar para novo cliente?`)) {
+        setClosingTableId(null);
+        return;
+      }
+
+      await executeAtomicClose(tableId, tableLabel, null, true);
+    } catch (err: any) {
+      toast.error(`Erro ao verificar mesa: ${err?.message || 'tente novamente'}`);
       setClosingTableId(null);
     }
   };
@@ -434,7 +491,7 @@ export default function TablesPage() {
                           className="inline-flex items-center justify-center py-2 rounded-lg bg-accent hover:bg-accent/80 transition-colors text-accent-foreground">
                           <ClipboardList className="h-4 w-4" />
                         </button>
-                        <button onClick={() => handleCloseTable(t.id, t.label || `Mesa ${t.number}`)}
+                        <button onClick={() => handleCloseTable(t)}
                           disabled={isClosing || (!isBusy && t.status === 'available')}
                           title={!isBusy && t.status === 'available' ? 'Mesa já está livre' : 'Fechar mesa e liberar'}
                           aria-label="Fechar mesa"
@@ -587,6 +644,107 @@ export default function TablesPage() {
         onOpenChange={(o) => { if (!o) setShowCommands(null); }}
         table={showCommands}
       />
+
+      {/* Atomic Settlement Dialog */}
+      <Dialog open={!!settlementModal?.open} onOpenChange={open => { if (!open) setSettlementModal(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wallet className="h-5 w-5 text-warning" />
+              Fechamento com Saldo Pendente — {settlementModal?.tableLabel}
+            </DialogTitle>
+            <DialogDescription>
+              Esta mesa possui pedidos com saldo em aberto. Selecione como deseja receber o valor antes de liberar a mesa.
+            </DialogDescription>
+          </DialogHeader>
+
+          {settlementModal && (
+            <div className="space-y-4 py-2">
+              <div className="p-3.5 rounded-xl bg-muted/40 space-y-1.5 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Consumo Total ({settlementModal.openOrdersCount} pedidos):</span>
+                  <span className="font-semibold tabular-nums">{formatCurrency(settlementModal.totalOrders)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Já Pago (parciais):</span>
+                  <span className="font-semibold tabular-nums text-success">{formatCurrency(settlementModal.totalPaid)}</span>
+                </div>
+                <div className="flex justify-between text-base font-extrabold pt-2 border-t border-border">
+                  <span>Saldo Pendente a Receber:</span>
+                  <span className="tabular-nums text-warning">{formatCurrency(settlementModal.remaining)}</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-1.5">
+                  Forma de Pagamento para Quitação *
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { id: 'pix', label: 'PIX' },
+                    { id: 'cash', label: 'Dinheiro' },
+                    { id: 'credit_card', label: 'Cartão Crédito' },
+                    { id: 'debit_card', label: 'Cartão Débito' },
+                  ].map(opt => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setSettlementMethod(opt.id as any)}
+                      className={`p-2.5 rounded-xl border text-xs font-bold transition-all ${
+                        settlementMethod === opt.id
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border hover:bg-muted text-muted-foreground'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 pt-2">
+                <button
+                  type="button"
+                  disabled={submittingSettlement}
+                  onClick={() => executeAtomicClose(
+                    settlementModal.tableId,
+                    settlementModal.tableLabel,
+                    settlementMethod,
+                    false
+                  )}
+                  className="w-full rounded-xl bg-success px-4 py-2.5 text-sm font-bold text-white hover:bg-success/90 active:scale-[0.98] transition-all disabled:opacity-50"
+                >
+                  {submittingSettlement ? 'Processando Fechamento...' : `Receber ${formatCurrency(settlementModal.remaining)} e Liberar Mesa`}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const t = tables.find(x => x.id === settlementModal.tableId);
+                    setSettlementModal(null);
+                    if (t) setShowPartial(t);
+                  }}
+                  className="w-full rounded-xl border border-border px-4 py-2 text-xs font-semibold hover:bg-muted transition-colors text-muted-foreground"
+                >
+                  ✂️ Dividir conta por pessoas ou comandas
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (confirm(`Atenção: deseja realmente liberar ${settlementModal.tableLabel} sem registrar o recebimento de ${formatCurrency(settlementModal.remaining)}?`)) {
+                      executeAtomicClose(settlementModal.tableId, settlementModal.tableLabel, null, true);
+                    }
+                  }}
+                  className="w-full text-center text-[11px] text-destructive hover:underline pt-1"
+                >
+                  Fechar sem receber saldo (Cortesia / Saída sem pagar)
+                </button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </RestaurantLayout>
   );
 }

@@ -54,15 +54,17 @@ const tabs: { key: string; label: string }[] = [
   { key: 'all', label: 'Todos' },
 ];
 
-function OrderDetailPanel({ order, updateStatus, setPrintOrder, restaurant, onSplitBill, onDispatch }: {
+function OrderDetailPanel({ order, updateStatus, setPrintOrder, restaurant, onSplitBill, onDispatch, updatingId }: {
   order: any;
   updateStatus: (id: string, status: OrderStatus) => void;
   setPrintOrder: (o: any) => void;
   restaurant: any;
   onSplitBill: (o: any) => void;
   onDispatch: (o: any) => void;
+  updatingId?: string | null;
 }) {
   const s = statusConfig[order.status] || statusConfig.new;
+  const isUpdating = updatingId === order.id;
   return (
     <div className="space-y-4 text-sm mt-4 lg:mt-0">
       <div className="flex items-center justify-between">
@@ -142,9 +144,11 @@ function OrderDetailPanel({ order, updateStatus, setPrintOrder, restaurant, onSp
             {statusFlow[order.status] && !(order.type === 'delivery' && order.status === 'delivering') && (
               <button
                 onClick={() => updateStatus(order.id, statusFlow[order.status])}
-                className="flex-1 rounded-lg bg-primary px-3 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 active:scale-[0.97] transition-all"
+                disabled={isUpdating}
+                className="flex-1 rounded-lg bg-primary px-3 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 active:scale-[0.97] transition-all disabled:opacity-50"
               >
-                {order.status === 'new' ? 'Aceitar' :
+                {isUpdating ? 'Salvando...' :
+                 order.status === 'new' ? 'Aceitar' :
                  order.status === 'accepted' ? 'Preparar' :
                  order.status === 'preparing' ? 'Pronto' :
                  order.status === 'waiting_pickup' ? 'Concluir' : 'Avançar'}
@@ -153,9 +157,24 @@ function OrderDetailPanel({ order, updateStatus, setPrintOrder, restaurant, onSp
             {order.status === 'new' && (
               <button
                 onClick={() => updateStatus(order.id, 'cancelled')}
-                className="rounded-lg border border-destructive/30 px-3 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/5 active:scale-[0.97] transition-all"
+                disabled={isUpdating}
+                className="rounded-lg border border-destructive/30 px-3 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/5 active:scale-[0.97] transition-all disabled:opacity-50"
               >
                 Recusar
+              </button>
+            )}
+            {['accepted', 'preparing', 'ready', 'waiting_pickup'].includes(order.status) && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm(`Deseja cancelar o pedido #${order.number}? O estoque dos itens vinculados será restaurado.`)) {
+                    updateStatus(order.id, 'cancelled');
+                  }
+                }}
+                disabled={isUpdating}
+                className="rounded-lg border border-destructive/40 px-3 py-2.5 text-xs font-medium text-destructive hover:bg-destructive/10 active:scale-[0.97] transition-all disabled:opacity-50"
+              >
+                Cancelar
               </button>
             )}
           </div>
@@ -244,7 +263,10 @@ export default function OrdersPage() {
     });
   };
 
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+
   const updateStatus = async (orderId: string, newStatus: OrderStatus) => {
+    if (updatingId === orderId) return;
     const order = orders.find(o => o.id === orderId);
     let finalStatus = newStatus;
     // If accepting a drink-only order, skip straight to ready
@@ -261,8 +283,22 @@ export default function OrdersPage() {
       toast.error('Delivery só é concluído pelo app do entregador.');
       return;
     }
-    await supabase.from('orders').update({ status: finalStatus }).eq('id', orderId);
-    queryClient.invalidateQueries({ queryKey: ['orders', restaurantId] });
+    try {
+      setUpdatingId(orderId);
+      const { error } = await supabase.from('orders').update({ status: finalStatus }).eq('id', orderId);
+      if (error) {
+        console.error('Erro ao atualizar pedido:', error);
+        toast.error('Falha ao atualizar pedido. Verifique sua conexão.');
+        return;
+      }
+      queryClient.invalidateQueries({ queryKey: ['orders', restaurantId] });
+      queryClient.invalidateQueries({ queryKey: ['inventory', restaurantId] });
+    } catch (err) {
+      console.error('Erro inesperado:', err);
+      toast.error('Erro ao atualizar status do pedido.');
+    } finally {
+      setUpdatingId(null);
+    }
   };
 
   // Load drivers when dispatch dialog opens
@@ -448,6 +484,7 @@ export default function OrdersPage() {
                     restaurant={restaurant}
                     onSplitBill={setSplitOrder}
                     onDispatch={setDispatchOrder}
+                    updatingId={updatingId}
                   />
                 </div>
               ) : (
@@ -472,6 +509,7 @@ export default function OrdersPage() {
                   restaurant={restaurant}
                   onSplitBill={setSplitOrder}
                   onDispatch={setDispatchOrder}
+                  updatingId={updatingId}
                 />
               )}
             </SheetContent>

@@ -17,6 +17,7 @@ export interface PendingOrder {
   }>;
   subtotal: number;
   total: number;
+  servedBy?: string | null;
   notes?: string;
   createdAt: number;
   attempts: number;

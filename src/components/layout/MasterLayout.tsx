@@ -20,6 +20,7 @@ const navItems = [
   { label: 'Assinaturas', icon: TrendingUp, path: '/master/subscriptions' },
   { label: 'Planos', icon: Package, path: '/master/planos' },
   { label: 'Cupons SaaS', icon: Ticket, path: '/master/cupons' },
+  { label: 'Feature Flags', icon: Flag, path: '/master/feature-flags' },
   { label: 'Notificações Push', icon: BellRing, path: '/master/push' },
   { label: 'Comunicados', icon: Megaphone, path: '/master/comunicados' },
   { label: 'Templates', icon: MessageSquare, path: '/master/templates' },
