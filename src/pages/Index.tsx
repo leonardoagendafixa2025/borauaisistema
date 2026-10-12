@@ -119,8 +119,11 @@ export default function Index() {
       {/* ═══════════════ NAV ═══════════════ */}
       <nav className="sticky top-0 z-50 backdrop-blur-2xl bg-background/80 border-b border-border">
         <div className="max-w-7xl mx-auto flex items-center justify-between px-4 sm:px-6 h-16 sm:h-20">
-          <Link to="/" className="flex items-center gap-2 group">
-            <img src={logoImg} alt="Bora Uai" className="h-12 sm:h-14 w-auto object-contain group-hover:scale-105 transition-transform" />
+          <Link to="/" className="flex items-center gap-2.5 group">
+            <img src={logoImg} alt="Bora Uai" className="h-10 sm:h-12 w-10 sm:w-12 rounded-xl object-contain shadow-md shadow-black/10 group-hover:scale-105 transition-transform" />
+            <span className="font-heading font-extrabold text-xl sm:text-2xl tracking-tight text-foreground">
+              Bora <span className="text-[#FF5757]">Uai</span>
+            </span>
           </Link>
           <div className="hidden md:flex items-center gap-7 text-sm font-medium text-muted-foreground">
             <a href="#modalidades" className="hover:text-foreground transition-colors">Modalidades</a>
@@ -808,7 +811,7 @@ export default function Index() {
             <a href="/borauai.apk" download="borauai.apk" className="hover:text-primary transition-colors font-medium">Baixar App (.apk)</a>
           </div>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-3 text-center">
-            <img src={logoImg} alt="Bora Uai" className="h-7 md:h-8 w-auto" />
+            <img src={logoImg} alt="Bora Uai" className="h-8 w-8 rounded-lg object-contain shadow-sm" />
             <span className="text-xs text-muted-foreground">© {new Date().getFullYear()} Bora Uai • Sistema completo para bares, restaurantes e baladas</span>
           </div>
         </div>

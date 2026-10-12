@@ -83,7 +83,7 @@ export default function RestaurantLogin() {
       <div className="w-full max-w-sm animate-reveal-up">
         <div className="text-center mb-6">
           <Link to="/" className="inline-flex items-center gap-2 mb-4">
-            <img src={logoImg} alt="Bora Uai" className="h-10 w-auto" />
+            <img src={logoImg} alt="Bora Uai" className="h-14 w-14 rounded-2xl object-contain shadow-md shadow-black/15 mx-auto" />
           </Link>
           <h1 className="font-heading text-2xl font-bold">
             {mode === 'login' ? 'Painel do Restaurante' : 'Recuperar Acesso'}

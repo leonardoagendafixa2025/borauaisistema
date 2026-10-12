@@ -60,13 +60,14 @@ export default function MasterLayout({ children }: { children: ReactNode }) {
         {/* Logo */}
         <div className="flex h-16 items-center justify-between px-4 border-b border-sidebar-border">
           {!collapsed && (
-            <Link to="/master" className="flex items-center gap-2">
-              <img src={logoImg} alt="Bora Uai" className="h-9 w-auto" />
+            <Link to="/master" className="flex items-center gap-2.5">
+              <img src={logoImg} alt="Bora Uai" className="h-9 w-9 rounded-lg object-contain" />
+              <span className="font-heading font-extrabold text-lg text-sidebar-foreground">Bora <span className="text-primary">Uai</span></span>
             </Link>
           )}
           {collapsed && (
             <Link to="/master" className="mx-auto">
-              <img src={logoImg} alt="Bora Uai" className="h-8 w-8 object-contain" />
+              <img src={logoImg} alt="Bora Uai" className="h-8 w-8 rounded-lg object-contain" />
             </Link>
           )}
         </div>

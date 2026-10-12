@@ -7,7 +7,7 @@ export const PageLoader: React.FC = () => {
     <div className="min-h-screen w-full flex flex-col items-center justify-center bg-background text-foreground animate-in fade-in duration-200">
       <div className="flex flex-col items-center gap-4">
         <div className="relative flex items-center justify-center">
-          <img src={logoImg} alt="Bora Uai" className="h-12 w-auto animate-pulse select-none" />
+          <img src={logoImg} alt="Bora Uai" className="h-16 w-16 rounded-2xl object-contain animate-pulse select-none shadow-xl shadow-black/20" />
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground font-medium">
           <Loader2 className="w-4 h-4 animate-spin text-primary" />

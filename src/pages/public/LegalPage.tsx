@@ -40,7 +40,8 @@ export default function LegalPage() {
       <header className="border-b border-border bg-card">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2">
-            <img src={logoImg} alt="Bora Uai" className="h-8 w-auto" />
+            <img src={logoImg} alt="Bora Uai" className="h-8 w-8 rounded-lg object-contain" />
+            <span className="font-heading font-bold text-lg">Bora Uai</span>
           </Link>
           <Link to="/" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
             <ArrowLeft className="h-4 w-4" /> Voltar
