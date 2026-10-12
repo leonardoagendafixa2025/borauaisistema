@@ -6,7 +6,7 @@ import { MessageCircle } from 'lucide-react';
 export default function SupportFAB() {
   return (
     <a
-      href="https://wa.me/5531991988796?text=Ol%C3%A1!%20Preciso%20de%20suporte%20no%20Bora%20Uai"
+      href="https://wa.me/5531975385879?text=Ol%C3%A1!%20Preciso%20de%20suporte%20no%20Bora%20Uai"
       target="_blank"
       rel="noopener"
       title="Suporte via WhatsApp"

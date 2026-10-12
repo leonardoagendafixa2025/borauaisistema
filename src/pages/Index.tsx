@@ -792,12 +792,12 @@ export default function Index() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 space-y-4 md:space-y-5">
           <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-muted-foreground">
             <a
-              href="https://wa.me/5531991988796?text=Ol%C3%A1!%20Quero%20saber%20mais%20sobre%20o%20Bora%20Uai"
+              href="https://wa.me/5531975385879?text=Ol%C3%A1!%20Quero%20saber%20mais%20sobre%20o%20Bora%20Uai"
               target="_blank"
               rel="noopener"
               className="inline-flex items-center gap-1.5 font-semibold text-primary hover:text-primary/80 transition-colors"
             >
-              💬 Vendas: (31) 99198-8796
+              💬 Vendas: (31) 97538-5879
             </a>
             <a href="mailto:toyesterdayagencia@gmail.com" className="hover:text-foreground transition-colors">
               ✉️ toyesterdayagencia@gmail.com

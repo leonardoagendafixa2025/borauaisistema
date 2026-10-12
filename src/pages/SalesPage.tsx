@@ -163,7 +163,7 @@ export default function SalesPage() {
           </Link>
           <div className="flex items-center gap-2">
             <a
-              href="https://wa.me/5500000000000?text=Quero%20conhecer%20os%20planos%20do%20Bora%20Uai"
+              href="https://wa.me/5531975385879?text=Quero%20conhecer%20os%20planos%20do%20Bora%20Uai"
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -329,7 +329,7 @@ export default function SalesPage() {
                 </Button>
               </Link>
               <a
-                href="https://wa.me/5500000000000?text=Quero%20conhecer%20os%20planos%20do%20Bora%20Uai"
+                href="https://wa.me/5531975385879?text=Quero%20conhecer%20os%20planos%20do%20Bora%20Uai"
                 target="_blank"
                 rel="noopener noreferrer"
               >

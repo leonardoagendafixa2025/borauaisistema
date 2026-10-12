@@ -134,7 +134,7 @@ export default function HelpCenter() {
           {[
             { icon: BookOpen, label: 'Guia de início', href: '#primeiros' },
             { icon: Video, label: 'Vídeos tutoriais', href: '#videos' },
-            { icon: MessageCircle, label: 'WhatsApp suporte', href: 'https://wa.me/5531991988796', external: true },
+            { icon: MessageCircle, label: 'WhatsApp suporte', href: 'https://wa.me/5531975385879', external: true },
           ].map((link, i) => {
             const Icon = link.icon;
             const Tag: any = link.external ? 'a' : Link;
@@ -205,7 +205,7 @@ export default function HelpCenter() {
           <p className="mb-6 text-white/90">Nossa equipe responde rapidinho.</p>
           <div className="flex flex-wrap justify-center gap-3">
             <Button asChild variant="secondary">
-              <a href="https://wa.me/5531991988796" target="_blank" rel="noopener">
+              <a href="https://wa.me/5531975385879" target="_blank" rel="noopener">
                 <Phone className="w-4 h-4 mr-2" /> WhatsApp
               </a>
             </Button>
