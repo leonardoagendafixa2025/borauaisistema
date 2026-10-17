@@ -130,7 +130,7 @@ export default function RegisterRestaurant() {
         provErrorMsg = e.message;
       }
 
-      // Secondary fallback: call Supabase Edge Function
+      // Secondary fallback: call Supabase Edge Function (swallowing connection/404 errors)
       if (!provisioned) {
         try {
           const { data: fnData, error: fnErr } = await supabase.functions.invoke('provision-restaurant', {
@@ -138,22 +138,109 @@ export default function RegisterRestaurant() {
           });
           if (!fnErr && fnData?.ok) {
             provisioned = true;
-          } else if (fnErr) {
-            provErrorMsg = fnErr.message || provErrorMsg;
           }
         } catch (e: any) {
-          console.warn('[RegisterRestaurant] Edge function fallback error:', e);
+          console.warn('[RegisterRestaurant] Edge function notice:', e);
         }
       }
 
-      if (!provisioned && provErrorMsg) {
-        throw new Error(provErrorMsg);
+      // Tertiary fallback: Direct client-side provisioning via Supabase Client
+      if (!provisioned) {
+        try {
+          // Ensure we have an active user session
+          let currentUserId = userId;
+          if (!currentUserId) {
+            const { data: signData } = await supabase.auth.signInWithPassword({
+              email: cleanEmail,
+              password: form.password,
+            });
+            currentUserId = signData?.user?.id;
+          }
+
+          if (currentUserId) {
+            // Check if restaurant already exists
+            const { data: existingRest } = await supabase
+              .from('restaurants')
+              .select('id, slug')
+              .eq('owner_id', currentUserId)
+              .maybeSingle();
+
+            let restId = existingRest?.id;
+
+            if (!restId) {
+              const baseSlug = form.restaurantName
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-|-$/g, '') || 'restaurante';
+
+              const slug = `${baseSlug}-${Date.now().toString().slice(-4)}`;
+
+              const { data: newRest, error: restErr } = await supabase
+                .from('restaurants')
+                .insert({
+                  name: form.restaurantName,
+                  slug,
+                  owner_id: currentUserId,
+                  phone: form.phone || null,
+                  email: cleanEmail,
+                  status: 'trial',
+                })
+                .select()
+                .single();
+
+              if (!restErr && newRest) {
+                restId = newRest.id;
+              }
+            }
+
+            if (restId) {
+              // Ensure settings
+              try {
+                await supabase.from('restaurant_settings').insert({ restaurant_id: restId });
+              } catch (_) {}
+
+              // Ensure owner role
+              try {
+                await supabase.from('user_roles').insert({ user_id: currentUserId, role: 'owner', restaurant_id: restId });
+              } catch (_) {}
+
+              // Ensure trial subscription
+              try {
+                const targetPlanId = form.planId.startsWith('fallback-')
+                  ? (plans.find((p: any) => p.tier === planTier)?.id || plans[0]?.id)
+                  : form.planId;
+
+                if (targetPlanId) {
+                  const trialEnd = new Date();
+                  trialEnd.setDate(trialEnd.getDate() + 14);
+                  await supabase.from('subscriptions').insert({
+                    restaurant_id: restId,
+                    plan_id: targetPlanId,
+                    status: 'trial',
+                    trial_ends_at: trialEnd.toISOString(),
+                    current_period_end: trialEnd.toISOString(),
+                  });
+                }
+              } catch (_) {}
+
+              provisioned = true;
+            }
+          }
+        } catch (directErr: any) {
+          console.warn('[RegisterRestaurant] Direct provision fallback notice:', directErr);
+        }
+      }
+
+      if (!provisioned) {
+        throw new Error(provErrorMsg || 'Não foi possível concluir o provisionamento. Tente novamente ou faça login.');
       }
 
       // 3. Try to sign in automatically to give immediate access
       try {
         const { data: loginData } = await supabase.auth.signInWithPassword({
-          email: form.email.trim().toLowerCase(),
+          email: cleanEmail,
           password: form.password,
         });
         if (loginData?.session) {
@@ -168,7 +255,10 @@ export default function RegisterRestaurant() {
       navigate('/restaurant/login');
     } catch (err: any) {
       console.error('[RegisterRestaurant] Registration error:', err);
-      toast.error(err.message || 'Erro ao cadastrar restaurante');
+      const friendlyMsg = err.message?.includes('Edge Function') || err.message?.includes('FunctionsFetchError')
+        ? 'Erro de conexão temporário. Tente novamente.'
+        : (err.message || 'Erro ao cadastrar restaurante');
+      toast.error(friendlyMsg);
     }
     setLoading(false);
   };

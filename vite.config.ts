@@ -10,7 +10,9 @@ function apiDevMiddleware(): Plugin {
         if (req.url && req.url.startsWith("/api/")) {
           const endpoint = req.url.slice(5).split("?")[0].replace(/\.js$/, "");
           try {
-            const module = await import(`./api/${endpoint}.js`);
+            const apiFilePath = path.resolve(__dirname, "api", `${endpoint}.js`);
+            const { pathToFileURL } = await import("url");
+            const module = await import(pathToFileURL(apiFilePath).href);
             const handler = module.default;
             if (!handler) {
               return next();

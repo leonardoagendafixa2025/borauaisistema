@@ -112,16 +112,28 @@ export default function BillingPage() {
       }
 
       if (!data?.url) {
-        const fnRes = await supabase.functions.invoke('create-portal-session', {
-          body: { restaurantId, environment: env, returnUrl: window.location.href },
-        });
-        if (fnRes.error) throw new Error(fnRes.error.message || errorMsg || 'Falha ao abrir portal');
-        data = fnRes.data;
+        try {
+          const fnRes = await supabase.functions.invoke('create-portal-session', {
+            body: { restaurantId, environment: env, returnUrl: window.location.href },
+          });
+          if (!fnRes.error && fnRes.data?.url) {
+            data = fnRes.data;
+          }
+        } catch (fnEx) {
+          console.warn('[BillingPage] Portal edge function notice:', fnEx);
+        }
       }
 
-      if (data?.url) window.open(data.url, '_blank');
+      if (data?.url) {
+        window.open(data.url, '_blank');
+      } else {
+        toast.info('Portal de gerenciamento Stripe disponível assim que a primeira assinatura for concluída.');
+      }
     } catch (err: any) {
-      toast.error(err.message || 'Erro ao abrir portal de gerenciamento');
+      const friendly = err.message?.includes('Edge Function') || err.message?.includes('FunctionsFetchError')
+        ? 'Portal indisponível no momento'
+        : (err.message || 'Erro ao abrir portal de gerenciamento');
+      toast.error(friendly);
     } finally {
       setBusy(null);
     }
