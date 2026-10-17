@@ -10,11 +10,13 @@ const corsHeaders = {
 
 interface Body {
   email: string;
+  password?: string;
   restaurantName: string;
   ownerName?: string;
   phone?: string;
   planTier?: string;   // when planId is a fallback-* one
   planId?: string;     // real uuid from subscription_plans
+  userId?: string;
 }
 
 Deno.serve(async (req) => {
@@ -22,7 +24,7 @@ Deno.serve(async (req) => {
 
   try {
     const body = (await req.json()) as Body;
-    const { email, restaurantName, ownerName, phone, planTier, planId } = body;
+    const { email, password, restaurantName, ownerName, phone, planTier, planId, userId: providedUserId } = body;
 
     if (!email || !restaurantName) {
       return new Response(JSON.stringify({ error: "missing_fields" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -34,14 +36,51 @@ Deno.serve(async (req) => {
       { auth: { persistSession: false } }
     );
 
-    // 1. Find the auth user by email (signUp was already done client-side)
-    const { data: usersPage, error: listErr } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
-    if (listErr) throw listErr;
-    const user = usersPage.users.find((u) => u.email?.toLowerCase() === email.toLowerCase());
-    if (!user) {
+    const cleanEmail = email.trim().toLowerCase();
+
+    // 1. Find or create the auth user
+    let userId = providedUserId;
+    if (!userId) {
+      const { data: usersPage, error: listErr } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
+      if (!listErr && usersPage?.users) {
+        const user = usersPage.users.find((u) => u.email?.toLowerCase() === cleanEmail);
+        if (user) {
+          userId = user.id;
+        }
+      }
+    }
+
+    if (!userId && password) {
+      try {
+        const { data: created, error: createErr } = await admin.auth.admin.createUser({
+          email: cleanEmail,
+          password: password,
+          email_confirm: true,
+          user_metadata: { full_name: ownerName || restaurantName },
+        });
+        if (created?.user) {
+          userId = created.user.id;
+        } else if (createErr) {
+          const { data: retryUsers } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
+          const user = retryUsers?.users?.find((u) => u.email?.toLowerCase() === cleanEmail);
+          if (user) userId = user.id;
+        }
+      } catch (err) {
+        console.warn("User auto-creation notice:", err);
+      }
+    }
+
+    if (!userId) {
       return new Response(JSON.stringify({ error: "user_not_found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-    const userId = user.id;
+
+    // Auto-confirm user so they don't get blocked by confirmation emails
+    try {
+      await admin.auth.admin.updateUserById(userId, {
+        email_confirm: true,
+        ...(password ? { password } : {}),
+      });
+    } catch (_) {}
 
     // 2. If this user already owns a restaurant, just return it (idempotent)
     const { data: existing } = await admin

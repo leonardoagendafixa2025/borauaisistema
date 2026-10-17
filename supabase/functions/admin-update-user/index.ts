@@ -41,6 +41,29 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const { action, user_id, email, password } = body;
 
+    // Action: create user (admin directly, bypasses rate limit and auto-confirms email)
+    if (action === "create-user") {
+      if (!email || !password) {
+        return new Response(JSON.stringify({ error: "email e password são obrigatórios" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const cleanEmail = email.trim().toLowerCase();
+      const { data: newUser, error: createErr } = await adminClient.auth.admin.createUser({
+        email: cleanEmail,
+        password: password,
+        email_confirm: true,
+        user_metadata: { full_name: body.full_name || '' },
+      });
+      if (createErr) {
+        const { data: listRes } = await adminClient.auth.admin.listUsers();
+        const found = listRes?.users?.find((u: any) => u.email?.toLowerCase() === cleanEmail);
+        if (found) {
+          return new Response(JSON.stringify({ success: true, user: found }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        return new Response(JSON.stringify({ error: createErr.message }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ success: true, user: newUser?.user }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     // Action: get user by email
     if (action === "get-by-email") {
       if (!email) return new Response(JSON.stringify({ error: "email é obrigatório" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });

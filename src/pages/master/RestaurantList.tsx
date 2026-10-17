@@ -142,29 +142,67 @@ export default function RestaurantList() {
       if (form.owner_email && form.owner_password) {
         // Save current admin session
         const { data: adminSession } = await supabase.auth.getSession();
-        
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email: form.owner_email, password: form.owner_password,
-          options: { data: { full_name: form.owner_name || form.name } },
-        });
 
-        if (authError) {
-          // If user already exists, try to find them via edge function or notify admin
-          if (authError.message?.includes('already registered') || (authError as any)?.code === 'user_already_exists') {
-            // Use admin-update-user edge function to look up by email
+        // 1. Primary: create or get user via admin service API (avoids email rate limits and preserves admin session)
+        try {
+          const res = await fetch('/api/admin-update-user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'create-user',
+              email: form.owner_email,
+              password: form.owner_password,
+              full_name: form.owner_name || form.name,
+            }),
+          });
+          const resJson = await res.json();
+          if (res.ok && resJson?.user?.id) {
+            ownerId = resJson.user.id;
+          }
+        } catch (apiEx) {
+          console.warn('[RestaurantList] Admin API user creation notice:', apiEx);
+        }
+
+        // 2. Secondary: try Supabase Edge Function
+        if (!ownerId) {
+          try {
+            const { data: fnData } = await supabase.functions.invoke('admin-update-user', {
+              body: {
+                action: 'create-user',
+                email: form.owner_email,
+                password: form.owner_password,
+                full_name: form.owner_name || form.name,
+              },
+            });
+            if (fnData?.user?.id) {
+              ownerId = fnData.user.id;
+            }
+          } catch (fnEx) {
+            console.warn('[RestaurantList] Edge function user creation notice:', fnEx);
+          }
+        }
+
+        // 3. Fallback: try client-side signUp
+        if (!ownerId) {
+          const { data: authData, error: authError } = await supabase.auth.signUp({
+            email: form.owner_email,
+            password: form.owner_password,
+            options: { data: { full_name: form.owner_name || form.name } },
+          });
+
+          if (authError) {
+            // Check if user already exists
             const { data: fnData } = await supabase.functions.invoke('admin-update-user', {
               body: { action: 'get-by-email', email: form.owner_email },
             });
             if (fnData?.user?.id) {
               ownerId = fnData.user.id;
             } else {
-              toast.warning('Usuário já existe mas não foi possível vincular automaticamente. Vincule manualmente depois.');
+              toast.warning('Usuário não pôde ser criado automaticamente. Se necessário, vincule manualmente.');
             }
           } else {
-            throw authError;
+            ownerId = authData?.user?.id || null;
           }
-        } else {
-          ownerId = authData.user?.id || null;
         }
 
         // Restore admin session immediately

@@ -56,34 +56,42 @@ export default function RegisterRestaurant() {
     }
     setLoading(true);
     try {
-      // 1. Create auth user or identify existing user
+      // 1. Create auth user or identify existing user (with fallback to admin API if rate limited)
       let userId: string | undefined;
-      let hasSession = false;
+      const cleanEmail = form.email.trim().toLowerCase();
 
-      const { data: authData, error: authErr } = await supabase.auth.signUp({
-        email: form.email.trim().toLowerCase(),
-        password: form.password,
-        options: {
-          data: { full_name: form.ownerName },
-          emailRedirectTo: `${window.location.origin}/restaurant/login`,
-        },
-      });
-
-      if (!authErr && authData?.user) {
-        userId = authData.user.id;
-        hasSession = !!authData.session;
-      } else if (authErr?.message?.toLowerCase().includes('already registered') || (authErr as any)?.code === 'user_already_exists') {
-        // User already has auth record; try signing in to get credentials
-        const { data: signInData } = await supabase.auth.signInWithPassword({
-          email: form.email.trim().toLowerCase(),
+      try {
+        const { data: authData, error: authErr } = await supabase.auth.signUp({
+          email: cleanEmail,
           password: form.password,
+          options: {
+            data: { full_name: form.ownerName },
+            emailRedirectTo: `${window.location.origin}/restaurant/login`,
+          },
         });
-        if (signInData?.user) {
-          userId = signInData.user.id;
-          hasSession = !!signInData.session;
+
+        if (!authErr && authData?.user) {
+          userId = authData.user.id;
+        } else if (authErr) {
+          const isRateLimit = authErr.message?.toLowerCase().includes('rate limit') || (authErr as any)?.code === 'over_email_send_rate_limit';
+          const isExisting = authErr.message?.toLowerCase().includes('already registered') || (authErr as any)?.code === 'user_already_exists';
+          
+          if (isExisting) {
+            const { data: signInData } = await supabase.auth.signInWithPassword({
+              email: cleanEmail,
+              password: form.password,
+            });
+            if (signInData?.user) {
+              userId = signInData.user.id;
+            }
+          } else if (isRateLimit) {
+            console.warn('[RegisterRestaurant] Email rate limit hit on client signUp. Will auto-create/confirm via admin service role without sending email.');
+          } else {
+            console.warn('[RegisterRestaurant] Client signUp warning, continuing to admin provisioning:', authErr.message);
+          }
         }
-      } else if (authErr) {
-        throw authErr;
+      } catch (clientAuthErr: any) {
+        console.warn('[RegisterRestaurant] Auth step exception (delegating to backend):', clientAuthErr?.message);
       }
 
       // 2. Provision restaurant via service-role backend API
@@ -92,7 +100,8 @@ export default function RegisterRestaurant() {
         : plans.find((p: any) => p.id === form.planId)?.tier;
 
       const payload = {
-        email: form.email.trim().toLowerCase(),
+        email: cleanEmail,
+        password: form.password,
         restaurantName: form.restaurantName,
         ownerName: form.ownerName,
         phone: form.phone,

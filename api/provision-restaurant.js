@@ -23,31 +23,67 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { email, restaurantName, ownerName, phone, planTier, planId, userId: providedUserId } = req.body || {};
+    const { email, password, restaurantName, ownerName, phone, planTier, planId, userId: providedUserId } = req.body || {};
 
     if (!email || !restaurantName) {
       return res.status(400).json({ error: 'Preencha o e-mail e o nome do restaurante.' });
     }
 
-    // 1. Resolve user ID
+    const cleanEmail = email.trim().toLowerCase();
+
+    // 1. Resolve user ID or auto-create/confirm user with admin service key (bypasses email rate limits)
     let userId = providedUserId;
     if (!userId) {
-      // Find user by email
-      const { data: usersPage, error: listErr } = await admin.auth.admin.listUsers({ page: 1, perPage: 500 });
-      if (listErr) throw listErr;
-      const user = usersPage.users.find(u => u.email?.toLowerCase() === email.toLowerCase());
-      if (user) {
-        userId = user.id;
+      // Find existing user by email
+      try {
+        const { data: usersPage, error: listErr } = await admin.auth.admin.listUsers({ page: 1, perPage: 500 });
+        if (!listErr && usersPage?.users) {
+          const user = usersPage.users.find(u => u.email?.toLowerCase() === cleanEmail);
+          if (user) {
+            userId = user.id;
+          }
+        }
+      } catch (findErr) {
+        console.warn('[provision-restaurant] User lookup error:', findErr?.message);
+      }
+    }
+
+    // If user does not exist yet and password was provided, create user directly (email_confirm: true bypasses rate limit)
+    if (!userId && password) {
+      try {
+        const { data: created, error: createErr } = await admin.auth.admin.createUser({
+          email: cleanEmail,
+          password: password,
+          email_confirm: true,
+          user_metadata: { full_name: ownerName || restaurantName }
+        });
+        if (created?.user) {
+          userId = created.user.id;
+        } else if (createErr) {
+          // If already exists or error, try finding again
+          const { data: retryUsers } = await admin.auth.admin.listUsers({ page: 1, perPage: 500 });
+          const retryUser = retryUsers?.users?.find(u => u.email?.toLowerCase() === cleanEmail);
+          if (retryUser) {
+            userId = retryUser.id;
+          } else {
+            console.warn('[provision-restaurant] admin.createUser notice:', createErr.message);
+          }
+        }
+      } catch (createEx) {
+        console.warn('[provision-restaurant] User creation exception:', createEx?.message);
       }
     }
 
     if (!userId) {
-      return res.status(404).json({ error: 'Usuário não encontrado. Crie a conta antes de provisionar o restaurante.' });
+      return res.status(400).json({ error: 'Não foi possível identificar ou criar o usuário. Verifique e-mail e senha.' });
     }
 
-    // Auto-confirm user email so they can log in smoothly without being blocked
+    // Auto-confirm user email and synchronize password so user can log in without verification email
     try {
-      await admin.auth.admin.updateUserById(userId, { email_confirm: true });
+      await admin.auth.admin.updateUserById(userId, {
+        email_confirm: true,
+        ...(password ? { password } : {})
+      });
     } catch (confirmErr) {
       console.warn('[provision-restaurant] Auto-confirm error (ignored):', confirmErr?.message);
     }

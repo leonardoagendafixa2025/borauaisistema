@@ -95,18 +95,70 @@ export default function UsersPage() {
 
   const createUserMutation = useMutation({
     mutationFn: async () => {
-      // Sign up user via edge function or direct (admin can create)
-      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-        email: newEmail,
-        password: newPassword,
-        options: { data: { full_name: newName } },
-      });
-      if (signUpError) throw signUpError;
-      if (!signUpData.user) throw new Error('Falha ao criar usuário');
+      let createdUserId: string | null = null;
+
+      // 1. Primary: create user via admin API (no rate limits, email auto-confirmed, no session swap)
+      try {
+        const resp = await fetch('/api/admin-update-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'create-user',
+            email: newEmail,
+            password: newPassword,
+            full_name: newName,
+          }),
+        });
+        const respData = await resp.json();
+        if (resp.ok && respData?.user?.id) {
+          createdUserId = respData.user.id;
+        }
+      } catch (apiErr) {
+        console.warn('[UsersPage] Admin API create error:', apiErr);
+      }
+
+      // 2. Secondary: Edge Function
+      if (!createdUserId) {
+        try {
+          const { data: fnData, error: fnErr } = await supabase.functions.invoke('admin-update-user', {
+            body: {
+              action: 'create-user',
+              email: newEmail,
+              password: newPassword,
+              full_name: newName,
+            },
+          });
+          if (!fnErr && fnData?.user?.id) {
+            createdUserId = fnData.user.id;
+          }
+        } catch (fnEx) {
+          console.warn('[UsersPage] Edge function create error:', fnEx);
+        }
+      }
+
+      // 3. Fallback: client signUp with session preservation
+      if (!createdUserId) {
+        const { data: adminSession } = await supabase.auth.getSession();
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+          email: newEmail,
+          password: newPassword,
+          options: { data: { full_name: newName } },
+        });
+        if (signUpError) throw signUpError;
+        if (!signUpData.user) throw new Error('Falha ao criar usuário');
+        createdUserId = signUpData.user.id;
+
+        if (adminSession?.session?.refresh_token) {
+          await supabase.auth.setSession({
+            access_token: adminSession.session.access_token,
+            refresh_token: adminSession.session.refresh_token,
+          });
+        }
+      }
 
       // Assign role
       const { error: roleError } = await supabase.from('user_roles').insert({
-        user_id: signUpData.user.id,
+        user_id: createdUserId,
         role: newRole,
         restaurant_id: newRestaurantId || null,
       });
