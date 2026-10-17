@@ -124,7 +124,14 @@ export default function SubscriptionsPage() {
         current_period_start: new Date().toISOString(),
         current_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       });
-      if (error) throw error;
+      if (error) {
+        const resp = await fetch('/api/create-checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ priceId: assignPlanId, restaurantId: assignRestaurantId }),
+        });
+        if (!resp.ok) throw error;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['all-subscriptions'] });

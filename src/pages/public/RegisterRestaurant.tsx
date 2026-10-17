@@ -56,47 +56,110 @@ export default function RegisterRestaurant() {
     }
     setLoading(true);
     try {
-      // 1. Create auth user
+      // 1. Create auth user or identify existing user
+      let userId: string | undefined;
+      let hasSession = false;
+
       const { data: authData, error: authErr } = await supabase.auth.signUp({
-        email: form.email,
+        email: form.email.trim().toLowerCase(),
         password: form.password,
         options: {
           data: { full_name: form.ownerName },
           emailRedirectTo: `${window.location.origin}/restaurant/login`,
         },
       });
-      if (authErr) throw authErr;
-      const userId = authData.user?.id;
-      if (!userId) throw new Error('Falha ao criar conta');
 
-      // 2. Provision restaurant via edge function (uses service role so it works
-      //    even if email confirmation is pending and the client has no session).
+      if (!authErr && authData?.user) {
+        userId = authData.user.id;
+        hasSession = !!authData.session;
+      } else if (authErr?.message?.toLowerCase().includes('already registered') || (authErr as any)?.code === 'user_already_exists') {
+        // User already has auth record; try signing in to get credentials
+        const { data: signInData } = await supabase.auth.signInWithPassword({
+          email: form.email.trim().toLowerCase(),
+          password: form.password,
+        });
+        if (signInData?.user) {
+          userId = signInData.user.id;
+          hasSession = !!signInData.session;
+        }
+      } else if (authErr) {
+        throw authErr;
+      }
+
+      // 2. Provision restaurant via service-role backend API
       const planTier = form.planId.startsWith('fallback-')
         ? form.planId.replace('fallback-', '')
         : plans.find((p: any) => p.id === form.planId)?.tier;
 
-      const { data: provData, error: provErr } = await supabase.functions.invoke('provision-restaurant', {
-        body: {
-          email: form.email,
-          restaurantName: form.restaurantName,
-          ownerName: form.ownerName,
-          phone: form.phone,
-          planId: form.planId.startsWith('fallback-') ? undefined : form.planId,
-          planTier,
-        },
-      });
-      if (provErr) throw provErr;
-      if ((provData as any)?.error) throw new Error((provData as any).error);
+      const payload = {
+        email: form.email.trim().toLowerCase(),
+        restaurantName: form.restaurantName,
+        ownerName: form.ownerName,
+        phone: form.phone,
+        planId: form.planId.startsWith('fallback-') ? undefined : form.planId,
+        planTier,
+        userId,
+      };
 
-      const isConfirmed = authData.user?.email_confirmed_at || authData.session;
-      if (!isConfirmed) {
-        toast.success('Restaurante criado! Verifique seu e-mail para confirmar e depois faça login.');
-      } else {
-        toast.success('Restaurante criado! Faça login para começar.');
+      let provisioned = false;
+      let provErrorMsg = '';
+
+      // Primary: call serverless /api/provision-restaurant
+      try {
+        const resp = await fetch('/api/provision-restaurant', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const respData = await resp.json();
+        if (resp.ok && respData?.ok) {
+          provisioned = true;
+        } else {
+          provErrorMsg = respData?.error || 'Erro ao provisionar restaurante';
+        }
+      } catch (e: any) {
+        provErrorMsg = e.message;
       }
+
+      // Secondary fallback: call Supabase Edge Function
+      if (!provisioned) {
+        try {
+          const { data: fnData, error: fnErr } = await supabase.functions.invoke('provision-restaurant', {
+            body: payload,
+          });
+          if (!fnErr && fnData?.ok) {
+            provisioned = true;
+          } else if (fnErr) {
+            provErrorMsg = fnErr.message || provErrorMsg;
+          }
+        } catch (e: any) {
+          console.warn('[RegisterRestaurant] Edge function fallback error:', e);
+        }
+      }
+
+      if (!provisioned && provErrorMsg) {
+        throw new Error(provErrorMsg);
+      }
+
+      // 3. Try to sign in automatically to give immediate access
+      try {
+        const { data: loginData } = await supabase.auth.signInWithPassword({
+          email: form.email.trim().toLowerCase(),
+          password: form.password,
+        });
+        if (loginData?.session) {
+          toast.success('Restaurante cadastrado com sucesso! Bem-vindo ao Bora Uai.');
+          navigate('/restaurant');
+          setLoading(false);
+          return;
+        }
+      } catch {}
+
+      toast.success('Restaurante criado com sucesso! Faça login para começar.');
       navigate('/restaurant/login');
     } catch (err: any) {
-      toast.error(err.message || 'Erro ao cadastrar');
+      console.error('[RegisterRestaurant] Registration error:', err);
+      toast.error(err.message || 'Erro ao cadastrar restaurante');
     }
     setLoading(false);
   };

@@ -7,9 +7,15 @@ function apiDevMiddleware(): Plugin {
     name: "api-dev-middleware",
     configureServer(server) {
       server.middlewares.use(async (req: any, res: any, next) => {
-        if (req.url && req.url.startsWith("/api/send-push")) {
+        if (req.url && req.url.startsWith("/api/")) {
+          const endpoint = req.url.slice(5).split("?")[0].replace(/\.js$/, "");
           try {
-            const { default: handler } = await import("./api/send-push.js");
+            const module = await import(`./api/${endpoint}.js`);
+            const handler = module.default;
+            if (!handler) {
+              return next();
+            }
+
             let body: any = {};
             if (req.method === "POST" || req.method === "PUT" || req.method === "PATCH") {
               const buffers: any[] = [];
@@ -35,7 +41,10 @@ function apiDevMiddleware(): Plugin {
             };
             return handler(req, res);
           } catch (err: any) {
-            console.error("[dev-api] Erro ao executar /api/send-push:", err);
+            if (err?.code === 'ERR_MODULE_NOT_FOUND' || err?.message?.includes('Cannot find module')) {
+              return next();
+            }
+            console.error(`[dev-api] Erro ao executar /api/${endpoint}:`, err);
             res.statusCode = 500;
             res.setHeader("Content-Type", "application/json");
             res.end(JSON.stringify({ error: err.message }));

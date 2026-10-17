@@ -97,10 +97,28 @@ export default function BillingPage() {
   const handlePortal = async () => {
     setBusy('portal');
     try {
-      const { data, error } = await supabase.functions.invoke('create-portal-session', {
-        body: { restaurantId, environment: env, returnUrl: window.location.href },
-      });
-      if (error) throw error;
+      let data: any = null;
+      let errorMsg = '';
+      try {
+        const res = await fetch('/api/create-portal-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ restaurantId, environment: env, returnUrl: window.location.href }),
+        });
+        data = await res.json();
+        if (!res.ok) errorMsg = data?.error;
+      } catch (e: any) {
+        errorMsg = e.message;
+      }
+
+      if (!data?.url) {
+        const fnRes = await supabase.functions.invoke('create-portal-session', {
+          body: { restaurantId, environment: env, returnUrl: window.location.href },
+        });
+        if (fnRes.error) throw new Error(fnRes.error.message || errorMsg || 'Falha ao abrir portal');
+        data = fnRes.data;
+      }
+
       if (data?.url) window.open(data.url, '_blank');
     } catch (err: any) {
       toast.error(err.message || 'Erro ao abrir portal de gerenciamento');
@@ -109,12 +127,13 @@ export default function BillingPage() {
     }
   };
 
-  const handleSelectPlan = (lookupKey: string) => {
-    if (!lookupKey) {
-      toast.error('Plano sem mapeamento no Stripe');
+  const handleSelectPlan = (lookupKey?: string, planId?: string) => {
+    const key = lookupKey || planId;
+    if (!key) {
+      toast.error('Identificador do plano ausente');
       return;
     }
-    setCheckoutPriceId(lookupKey);
+    setCheckoutPriceId(key);
   };
 
   if (isLoading) {
@@ -268,8 +287,8 @@ export default function BillingPage() {
                 return (
                   <button
                     key={p.id}
-                    onClick={() => handleSelectPlan(p.stripe_lookup_key)}
-                    disabled={isCurrent || !p.stripe_lookup_key}
+                    onClick={() => handleSelectPlan(p.stripe_lookup_key, p.id)}
+                    disabled={isCurrent}
                     className="w-full text-left rounded-lg border border-border p-4 hover:border-primary hover:bg-primary/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <div className="flex items-center justify-between">

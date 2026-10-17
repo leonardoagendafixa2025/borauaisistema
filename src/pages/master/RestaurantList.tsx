@@ -116,7 +116,7 @@ export default function RestaurantList() {
       await supabase.from('restaurant_settings').insert({ restaurant_id: restaurant.id });
       if (form.plan_id) {
         const plan = plans.find(p => p.id === form.plan_id);
-        await supabase.from('subscriptions').insert({
+        const { error: subErr } = await supabase.from('subscriptions').insert({
           restaurant_id: restaurant.id, plan_id: form.plan_id,
           status: form.status === 'trial' ? 'trial' : 'active',
           monthly_price: plan?.price || 0,
@@ -124,6 +124,17 @@ export default function RestaurantList() {
           current_period_end: new Date(Date.now() + 30 * 86400000).toISOString(),
           trial_ends_at: form.status === 'trial' ? new Date(Date.now() + 14 * 86400000).toISOString() : null,
         });
+        if (subErr) {
+          try {
+            await fetch('/api/create-checkout', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ priceId: form.plan_id, restaurantId: restaurant.id }),
+            });
+          } catch (apiErr) {
+            console.warn('[RestaurantList] Subscription fallback error:', apiErr);
+          }
+        }
       }
 
       // 3. Create owner account LAST (signUp switches session)
@@ -292,7 +303,14 @@ export default function RestaurantList() {
         const { error } = await supabase.from('subscriptions').update({
           plan_id: newPlanId, monthly_price: plan?.price || 0,
         }).eq('id', sub.id);
-        if (error) throw error;
+        if (error) {
+          const resp = await fetch('/api/create-checkout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ priceId: newPlanId, restaurantId: planRestaurant.id }),
+          });
+          if (!resp.ok) throw error;
+        }
       } else {
         const { error } = await supabase.from('subscriptions').insert({
           restaurant_id: planRestaurant.id, plan_id: newPlanId,
@@ -300,7 +318,14 @@ export default function RestaurantList() {
           current_period_start: new Date().toISOString(),
           current_period_end: new Date(Date.now() + 30 * 86400000).toISOString(),
         });
-        if (error) throw error;
+        if (error) {
+          const resp = await fetch('/api/create-checkout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ priceId: newPlanId, restaurantId: planRestaurant.id }),
+          });
+          if (!resp.ok) throw error;
+        }
       }
       invalidate();
       toast.success(`Plano alterado para ${plan?.name}!`);
