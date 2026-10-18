@@ -54,7 +54,7 @@ export default function ProtectedRoute({ children, requireMaster, requireRestaur
   }
 
   // Bloqueio: redireciona para a página de cobrança onde o usuário pode reativar via Stripe
-  if (requireRestaurant && !allowBlocked && !plan.loading && plan.isBlocked) {
+  if (requireRestaurant && !isMasterAdmin && !allowBlocked && !plan.loading && plan.isBlocked) {
     return <Navigate to="/restaurant/billing" replace />;
   }
 

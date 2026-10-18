@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { Suspense, lazy } from "react";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -178,6 +178,8 @@ const App = () => (
 
                 <Route path="/restaurant/expenses" element={<ProtectedRoute requireRestaurant><ExpensesPage /></ProtectedRoute>} />
                 <Route path="/restaurant/finance" element={<ProtectedRoute requireRestaurant><FinanceHub /></ProtectedRoute>} />
+                <Route path="/restaurant/financial" element={<Navigate to="/restaurant/finance" replace />} />
+                <Route path="/restaurant/financeiro" element={<Navigate to="/restaurant/finance" replace />} />
                 <Route path="/restaurant/reservations" element={<ProtectedRoute requireRestaurant><ReservationsPage /></ProtectedRoute>} />
                 <Route path="/restaurant/feedback" element={<ProtectedRoute requireRestaurant><FeedbackPage /></ProtectedRoute>} />
                 <Route path="/restaurant/ai-insights" element={<ProtectedRoute requireRestaurant><AIInsightsPage /></ProtectedRoute>} />

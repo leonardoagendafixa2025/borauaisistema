@@ -10,10 +10,13 @@ import {
   Crown, AlertTriangle, BarChart3, Wallet, ShoppingBag,
 } from 'lucide-react';
 
-const fmt = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+const fmt = (v: number | null | undefined) => {
+  const val = Number(v) || 0;
+  return `R$ ${val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
 
 export default function FinanceHub() {
-  const { restaurantId } = useAuth();
+  const { restaurantId, loading: authLoading } = useAuth();
   const { data: orders = [] } = useRestaurantOrders(undefined, 'today');
 
   // Yesterday for delta
@@ -21,18 +24,27 @@ export default function FinanceHub() {
     queryKey: ['finance-hub-y', restaurantId],
     enabled: !!restaurantId,
     queryFn: async () => {
-      const start = new Date();
-      start.setDate(start.getDate() - 1);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(start);
-      end.setHours(23, 59, 59, 999);
-      const { data } = await supabase
-        .from('orders')
-        .select('total,status')
-        .eq('restaurant_id', restaurantId!)
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString());
-      return data ?? [];
+      try {
+        const start = new Date();
+        start.setDate(start.getDate() - 1);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(start);
+        end.setHours(23, 59, 59, 999);
+        const { data, error } = await supabase
+          .from('orders')
+          .select('total,status')
+          .eq('restaurant_id', restaurantId!)
+          .gte('created_at', start.toISOString())
+          .lte('created_at', end.toISOString());
+        if (error) {
+          console.warn('[FinanceHub] yOrders error:', error.message);
+          return [];
+        }
+        return data ?? [];
+      } catch (err) {
+        console.warn('[FinanceHub] yOrders catch:', err);
+        return [];
+      }
     },
   });
 
@@ -41,16 +53,26 @@ export default function FinanceHub() {
     queryKey: ['finance-hub-exp', restaurantId],
     enabled: !!restaurantId,
     queryFn: async () => {
-      const monthStart = new Date();
-      monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
-      const { data } = await supabase
-        .from('expenses' as any)
-        .select('id,description,amount,due_date,paid,category')
-        .eq('restaurant_id', restaurantId!)
-        .gte('due_date', monthStart.toISOString().slice(0, 10))
-        .order('due_date', { ascending: false })
-        .limit(8);
-      return (data ?? []) as any[];
+      try {
+        const monthStart = new Date();
+        monthStart.setDate(1);
+        monthStart.setHours(0, 0, 0, 0);
+        const { data, error } = await supabase
+          .from('expenses')
+          .select('id,description,amount,due_date,status,expense_categories(name)')
+          .eq('restaurant_id', restaurantId!)
+          .gte('due_date', monthStart.toISOString().slice(0, 10))
+          .order('due_date', { ascending: false })
+          .limit(8);
+        if (error) {
+          console.warn('[FinanceHub] expenses error:', error.message);
+          return [];
+        }
+        return (data ?? []) as any[];
+      } catch (err) {
+        console.warn('[FinanceHub] expenses catch:', err);
+        return [];
+      }
     },
   });
 
@@ -59,28 +81,40 @@ export default function FinanceHub() {
     queryKey: ['finance-hub-cust', restaurantId],
     enabled: !!restaurantId,
     queryFn: async () => {
-      const { data } = await supabase
-        .from('customers' as any)
-        .select('id,name,phone,total_spent,total_orders')
-        .eq('restaurant_id', restaurantId!)
-        .order('total_spent', { ascending: false })
-        .limit(5);
-      return (data ?? []) as any[];
+      try {
+        const { data, error } = await supabase
+          .from('customers' as any)
+          .select('id,name,phone,total_spent,total_orders')
+          .eq('restaurant_id', restaurantId!)
+          .order('total_spent', { ascending: false })
+          .limit(5);
+        if (error) {
+          console.warn('[FinanceHub] topCustomers error:', error.message);
+          return [];
+        }
+        return (data ?? []) as any[];
+      } catch (err) {
+        console.warn('[FinanceHub] topCustomers catch:', err);
+        return [];
+      }
     },
   });
 
   // Top products today
-  const todayPaid = useMemo(() => orders.filter(o => o.status === 'completed'), [orders]);
-  const revenueToday = todayPaid.reduce((s, o) => s + Number(o.total), 0);
+  const todayPaid = useMemo(
+    () => (orders || []).filter(o => o.status === 'completed' || o.status === 'delivered'),
+    [orders]
+  );
+  const revenueToday = todayPaid.reduce((s, o) => s + Number(o.total || 0), 0);
   const ordersToday = todayPaid.length;
   const ticketToday = ordersToday > 0 ? revenueToday / ordersToday : 0;
 
-  const yPaid = yOrders.filter((o: any) => o.status === 'completed');
-  const revenueY = yPaid.reduce((s: number, o: any) => s + Number(o.total), 0);
-  const deltaPct = revenueY > 0 ? ((revenueToday - revenueY) / revenueY) * 100 : 0;
+  const yPaid = (yOrders || []).filter((o: any) => o.status === 'completed' || o.status === 'delivered');
+  const revenueY = yPaid.reduce((s: number, o: any) => s + Number(o.total || 0), 0);
+  const deltaPct = revenueY > 0 ? ((revenueToday - revenueY) / revenueY) * 100 : undefined;
 
-  const expensesMonth = expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
-  const unpaid = expenses.filter(e => !e.paid);
+  const expensesMonth = (expenses || []).reduce((s, e) => s + Number(e.amount || 0), 0);
+  const unpaid = (expenses || []).filter(e => e.status !== 'paid');
   const unpaidTotal = unpaid.reduce((s, e) => s + Number(e.amount || 0), 0);
 
   const topProducts = useMemo(() => {
@@ -89,13 +123,25 @@ export default function FinanceHub() {
       (o.order_items || []).forEach((it: any) => {
         const k = it.product_name || it.name || 'Item';
         const cur = map.get(k) || { name: k, qty: 0, total: 0 };
-        cur.qty += it.quantity || 1;
-        cur.total += Number(it.unit_price || 0) * (it.quantity || 1);
+        const qty = Number(it.quantity || it.qty || 1);
+        const unitPrice = Number(it.unit_price ?? it.price ?? 0);
+        cur.qty += qty;
+        cur.total += unitPrice * qty;
         map.set(k, cur);
       });
     });
     return Array.from(map.values()).sort((a, b) => b.qty - a.qty).slice(0, 6);
   }, [todayPaid]);
+
+  if (!restaurantId && authLoading) {
+    return (
+      <RestaurantLayout>
+        <div className="flex h-64 items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        </div>
+      </RestaurantLayout>
+    );
+  }
 
   return (
     <RestaurantLayout>
@@ -109,8 +155,8 @@ export default function FinanceHub() {
             <p className="text-xs text-muted-foreground">Receita, despesas, ticket médio e top clientes em uma tela.</p>
           </div>
           <div className="flex gap-2 text-xs">
-            <Link to="/restaurant/expenses" className="px-3 py-1.5 rounded-lg border border-border hover:bg-muted/50">Despesas</Link>
-            <Link to="/restaurant/reports" className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:opacity-90">Relatórios →</Link>
+            <Link to="/restaurant/expenses" className="px-3 py-1.5 rounded-lg border border-border hover:bg-muted/50 transition-colors">Despesas</Link>
+            <Link to="/restaurant/reports" className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity">Relatórios →</Link>
           </div>
         </div>
 
@@ -132,19 +178,23 @@ export default function FinanceHub() {
               </div>
               <Link to="/restaurant/expenses" className="text-xs text-primary hover:underline flex items-center gap-0.5">Gerenciar <ArrowUpRight className="h-3 w-3" /></Link>
             </header>
-            {expenses.length === 0 ? (
+            {(expenses || []).length === 0 ? (
               <div className="p-6 text-center text-sm text-muted-foreground">Nenhuma despesa registrada este mês.</div>
             ) : (
               <ul className="divide-y divide-border">
-                {expenses.map(e => (
-                  <li key={e.id} className="flex items-center gap-2 px-3 py-2 text-sm">
-                    {!e.paid && <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0" />}
-                    <span className="flex-1 truncate">{e.description}</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground hidden sm:inline">{e.category || '—'}</span>
-                    <span className="text-xs text-muted-foreground hidden md:inline">{e.due_date}</span>
-                    <span className={`font-bold tabular-nums w-24 text-right ${e.paid ? '' : 'text-warning'}`}>{fmt(Number(e.amount))}</span>
-                  </li>
-                ))}
+                {expenses.map((e: any) => {
+                  const isPaid = e.status === 'paid';
+                  const catName = e.expense_categories?.name || e.category || '—';
+                  return (
+                    <li key={e.id} className="flex items-center gap-2 px-3 py-2 text-sm">
+                      {!isPaid && <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0" />}
+                      <span className="flex-1 truncate">{e.description}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground hidden sm:inline">{catName}</span>
+                      <span className="text-xs text-muted-foreground hidden md:inline">{e.due_date}</span>
+                      <span className={`font-bold tabular-nums w-24 text-right ${isPaid ? '' : 'text-warning'}`}>{fmt(Number(e.amount))}</span>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>
@@ -158,7 +208,7 @@ export default function FinanceHub() {
               </div>
               <Link to="/restaurant/customers" className="text-xs text-primary hover:underline flex items-center gap-0.5">CRM <ArrowUpRight className="h-3 w-3" /></Link>
             </header>
-            {topCustomers.length === 0 ? (
+            {(topCustomers || []).length === 0 ? (
               <div className="p-6 text-center text-sm text-muted-foreground">Sem clientes cadastrados.</div>
             ) : (
               <ul className="divide-y divide-border">
@@ -167,7 +217,7 @@ export default function FinanceHub() {
                     <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-[11px] font-bold flex items-center justify-center">{i + 1}</span>
                     <div className="flex-1 min-w-0">
                       <div className="truncate font-medium">{c.name}</div>
-                      <div className="text-[11px] text-muted-foreground">{c.total_orders}× pedidos</div>
+                      <div className="text-[11px] text-muted-foreground">{c.total_orders || 0}× pedidos</div>
                     </div>
                     <span className="font-bold tabular-nums text-xs">{fmt(Number(c.total_spent || 0))}</span>
                   </li>
@@ -191,8 +241,8 @@ export default function FinanceHub() {
             ) : (
               <ul className="divide-y divide-border">
                 {topProducts.map((p, i) => {
-                  const max = topProducts[0].qty || 1;
-                  const pct = (p.qty / max) * 100;
+                  const max = topProducts[0]?.qty || 1;
+                  const pct = Math.min(100, Math.max(0, (p.qty / max) * 100));
                   return (
                     <li key={p.name} className="px-3 py-2 text-sm">
                       <div className="flex items-center gap-2">
@@ -240,7 +290,7 @@ function Kpi({ icon: Icon, label, value, sub, delta, tone }: { icon: any; label:
     <div className={`rounded-xl border ${toneCls} p-3`}>
       <div className="flex items-center justify-between">
         <Icon className="h-4 w-4 text-muted-foreground" />
-        {delta !== undefined && (
+        {delta !== undefined && !Number.isNaN(delta) && (
           <span className={`text-[11px] font-semibold inline-flex items-center gap-0.5 ${delta >= 0 ? 'text-success' : 'text-destructive'}`}>
             {delta >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
             {Math.abs(delta).toFixed(1)}%

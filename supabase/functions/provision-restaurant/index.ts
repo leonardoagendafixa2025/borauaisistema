@@ -89,6 +89,51 @@ Deno.serve(async (req) => {
       .eq("owner_id", userId)
       .maybeSingle();
     if (existing) {
+      const { data: existingRole } = await admin
+        .from("user_roles")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("restaurant_id", existing.id)
+        .eq("role", "owner")
+        .maybeSingle();
+
+      if (!existingRole) {
+        await admin.from("user_roles").insert({
+          user_id: userId,
+          role: "owner",
+          restaurant_id: existing.id,
+        });
+      }
+
+      const { data: existingSub } = await admin
+        .from("subscriptions")
+        .select("id")
+        .eq("restaurant_id", existing.id)
+        .maybeSingle();
+
+      if (!existingSub) {
+        const { data: basicPlan } = await admin
+          .from("subscription_plans")
+          .select("id, price")
+          .eq("tier", "basic")
+          .maybeSingle();
+
+        if (basicPlan) {
+          const trialEnd = new Date();
+          trialEnd.setDate(trialEnd.getDate() + 14);
+          await admin.from("subscriptions").insert({
+            restaurant_id: existing.id,
+            plan_id: basicPlan.id,
+            status: "trial",
+            trial_ends_at: trialEnd.toISOString(),
+            monthly_price: basicPlan.price || 49.99,
+            current_period_start: new Date().toISOString(),
+            current_period_end: trialEnd.toISOString(),
+            environment: "sandbox",
+          });
+        }
+      }
+
       return new Response(JSON.stringify({ ok: true, restaurant_id: existing.id, slug: existing.slug, alreadyProvisioned: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
