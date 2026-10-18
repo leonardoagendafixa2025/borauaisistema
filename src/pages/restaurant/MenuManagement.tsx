@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { Search, Plus, Edit2, ToggleLeft, ToggleRight, Trash2, Upload, ChevronDown, ChevronRight, FolderTree, Sparkles, MoreVertical, X } from 'lucide-react';
 import RestaurantLayout from '@/components/layout/RestaurantLayout';
 import ScrollReveal from '@/components/ScrollReveal';
@@ -57,9 +57,33 @@ export default function MenuManagement() {
   const [productOpen, setProductOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<string | null>(null);
   const [form, setForm] = useState<ProductForm>(emptyForm);
+  const [isDraftRestored, setIsDraftRestored] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const optionsRef = useRef<ProductOptionsEditorRef>(null);
+
+  const DRAFT_STORAGE_KEY = restaurantId ? `borauai_product_draft_${restaurantId}` : 'borauai_product_draft';
+
+  // Auto-save draft in sessionStorage when typing a new product (survives tab switches, minimizing and accidental refreshes)
+  useEffect(() => {
+    if (productOpen && !editingProduct) {
+      const hasContent = !!(form.name.trim() || form.price || form.description.trim() || form.image_url || form.promo_price);
+      if (hasContent) {
+        try {
+          sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(form));
+        } catch {}
+      }
+    }
+  }, [form, productOpen, editingProduct, DRAFT_STORAGE_KEY]);
+
+  const discardDraft = () => {
+    try {
+      sessionStorage.removeItem(DRAFT_STORAGE_KEY);
+    } catch {}
+    setForm(emptyForm);
+    setIsDraftRestored(false);
+    toast.info('Rascunho de produto descartado.');
+  };
 
   // Category dialog
   const [catOpen, setCatOpen] = useState(false);
@@ -95,11 +119,34 @@ export default function MenuManagement() {
       return;
     }
     setEditingProduct(null);
-    setForm({ ...emptyForm, category_id: categoryId || (categories[0] as any)?.id || '' });
+
+    // Check if there is an unsaved draft to restore
+    let restored = false;
+    try {
+      const savedDraft = sessionStorage.getItem(DRAFT_STORAGE_KEY);
+      if (savedDraft) {
+        const parsed = JSON.parse(savedDraft);
+        if (parsed && (parsed.name || parsed.price || parsed.description || parsed.image_url)) {
+          setForm({
+            ...parsed,
+            category_id: categoryId || parsed.category_id || (categories[0] as any)?.id || ''
+          });
+          restored = true;
+          setIsDraftRestored(true);
+        }
+      }
+    } catch {}
+
+    if (!restored) {
+      setForm({ ...emptyForm, category_id: categoryId || (categories[0] as any)?.id || '' });
+      setIsDraftRestored(false);
+    }
     setProductOpen(true);
   };
+
   const openEditProduct = (p: any) => {
     setEditingProduct(p.id);
+    setIsDraftRestored(false);
     setForm({ name: p.name, description: p.description || '', price: String(p.price), promo_price: p.promo_price ? String(p.promo_price) : '', category_id: p.category_id, featured: p.featured, active: p.active, sold_out: p.sold_out, image_url: p.image_url || '' });
     setProductOpen(true);
   };
@@ -149,6 +196,11 @@ export default function MenuManagement() {
     }
 
     toast.success(editingProduct ? 'Produto atualizado' : 'Produto criado');
+    try {
+      sessionStorage.removeItem(DRAFT_STORAGE_KEY);
+    } catch {}
+    setIsDraftRestored(false);
+    setForm(emptyForm);
     setSaving(false);
     setProductOpen(false);
     invalidate();
@@ -512,8 +564,30 @@ export default function MenuManagement() {
 
       {/* Product Dialog */}
       <Dialog open={productOpen} onOpenChange={setProductOpen}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editingProduct ? 'Editar Produto' : 'Novo Produto'}</DialogTitle></DialogHeader>
+        <DialogContent
+          className="sm:max-w-2xl max-h-[90vh] overflow-y-auto"
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+        >
+          <DialogHeader>
+            <div className="flex items-center justify-between pr-6">
+              <DialogTitle>{editingProduct ? 'Editar Produto' : 'Novo Produto'}</DialogTitle>
+              {isDraftRestored && !editingProduct && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
+                    Rascunho recuperado
+                  </span>
+                  <button
+                    type="button"
+                    onClick={discardDraft}
+                    className="text-xs text-muted-foreground hover:text-destructive underline cursor-pointer"
+                  >
+                    Descartar
+                  </button>
+                </div>
+              )}
+            </div>
+          </DialogHeader>
           <Tabs defaultValue="details" className="mt-2">
             <TabsList className="w-full grid grid-cols-2">
               <TabsTrigger value="details">Detalhes</TabsTrigger>
@@ -607,7 +681,11 @@ export default function MenuManagement() {
 
       {/* Category Dialog */}
       <Dialog open={catOpen} onOpenChange={setCatOpen}>
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent
+          className="sm:max-w-sm"
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle>
               {editingCat ? 'Editar Categoria' : (catForm.parent_id ? 'Nova Subcategoria' : 'Nova Categoria')}

@@ -77,7 +77,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const promise = (async (): Promise<UserRole[]> => {
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), ROLE_FETCH_TIMEOUT_MS);
-      setRolesLoading(true);
+      if (rolesRef.current.length === 0) {
+        setRolesLoading(true);
+      }
       try {
         const { data, error } = await supabase
           .from('user_roles')
@@ -167,6 +169,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (mounted) setLoading(false);
     };
 
+    const currentUserRef = { current: user };
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!mounted) return;
       if (signInInProgressRef.current) return;
@@ -175,7 +179,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(nextSession?.user ?? null);
         return;
       }
-      setLoading(true);
+      if (!currentUserRef.current) {
+        setLoading(true);
+      }
       void initializeSession(nextSession);
     });
 
