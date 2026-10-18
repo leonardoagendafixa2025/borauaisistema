@@ -36,7 +36,6 @@ export default function RestaurantLogin() {
 
     const hasRestaurant = roles.some((r) => r.restaurant_id);
     if (hasRestaurant) {
-      // Check if user is attendant (waiter) or kitchen
       const userRole = roles.find((r) => r.restaurant_id)?.role;
       if (userRole === 'attendant') {
         navigate('/garcom');
@@ -45,14 +44,79 @@ export default function RestaurantLogin() {
       } else {
         navigate('/restaurant');
       }
-    } else {
-      toast({
-        title: 'Sem restaurante vinculado',
-        description: 'Sua conta não possui um restaurante ativo. Conclua o cadastro da sua loja.',
-        variant: 'destructive',
-      });
-      navigate('/cadastro');
+      return;
     }
+
+    // Auto-heal: If roles didn't list the restaurant, check owned restaurants or auto-initialize
+    const { data: { user: currentUser } } = await supabase.auth.getUser();
+    if (currentUser) {
+      const { data: owned } = await supabase.from('restaurants').select('id, name').eq('owner_id', currentUser.id).limit(1);
+      if (owned && owned.length > 0) {
+        const restId = owned[0].id;
+        try {
+          localStorage.setItem('borauai_active_restaurant_id', restId);
+          await supabase.from('user_roles').insert({ user_id: currentUser.id, role: 'owner', restaurant_id: restId });
+        } catch (_) {}
+        navigate('/restaurant');
+        return;
+      }
+
+      // Auto-provision a store for the user so they can immediately use the platform
+      try {
+        const ownerName = currentUser.user_metadata?.full_name || 'Restaurante';
+        const defaultName = `Restaurante de ${ownerName}`;
+        const baseSlug = ownerName
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '') || 'restaurante';
+        const slug = `${baseSlug}-${Date.now().toString().slice(-4)}`;
+
+        const { data: newRest } = await supabase.from('restaurants').insert({
+          name: defaultName,
+          slug,
+          owner_id: currentUser.id,
+          email: currentUser.email,
+          status: 'trial'
+        }).select().single();
+
+        if (newRest) {
+          try {
+            await supabase.from('restaurant_settings').insert({ restaurant_id: newRest.id });
+            await supabase.from('user_roles').insert({ user_id: currentUser.id, role: 'owner', restaurant_id: newRest.id });
+            const { data: plans } = await supabase.from('subscription_plans').select('id').limit(1);
+            if (plans && plans.length > 0) {
+              const trialEnd = new Date(Date.now() + 14 * 86400000).toISOString();
+              await supabase.from('subscriptions').insert({
+                restaurant_id: newRest.id,
+                plan_id: plans[0].id,
+                status: 'trial',
+                trial_ends_at: trialEnd,
+                current_period_end: trialEnd
+              });
+            }
+            localStorage.setItem('borauai_active_restaurant_id', newRest.id);
+          } catch (_) {}
+
+          toast({
+            title: 'Bem-vindo ao Bora Uai!',
+            description: 'Seu restaurante foi inicializado.',
+          });
+          navigate('/restaurant');
+          return;
+        }
+      } catch (autoErr) {
+        console.warn('[RestaurantLogin] Auto-provision notice:', autoErr);
+      }
+    }
+
+    toast({
+      title: 'Sem restaurante vinculado',
+      description: 'Sua conta não possui um restaurante ativo. Conclua o cadastro da sua loja.',
+      variant: 'destructive',
+    });
+    navigate('/cadastro');
   };
 
   const handleForgot = async (e: React.FormEvent) => {

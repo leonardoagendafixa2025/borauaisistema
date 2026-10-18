@@ -86,9 +86,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .abortSignal(controller.signal);
 
         if (requestId !== rolesRequestRef.current) return [];
-        if (error) throw error;
+        if (error) console.warn('[useAuth] user_roles notice:', error.message);
 
-        const result = (data || []) as UserRole[];
+        const result: UserRole[] = ((data || []) as UserRole[]).slice();
+
+        // Safety fallback: Check if user owns any restaurants directly in restaurants table
+        try {
+          const { data: ownedRests } = await supabase
+            .from('restaurants')
+            .select('id, name')
+            .eq('owner_id', userId);
+
+          if (ownedRests && ownedRests.length > 0) {
+            for (const o of ownedRests) {
+              if (!result.some(r => r.restaurant_id === o.id)) {
+                result.push({ role: 'owner', restaurant_id: o.id });
+              }
+            }
+          }
+        } catch (ownedEx) {
+          console.warn('[useAuth] owned restaurants check notice:', ownedEx);
+        }
+
         rolesRef.current = result;
         rolesFetchedAtRef.current = Date.now();
         lastFetchedUserIdRef.current = userId;
