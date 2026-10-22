@@ -1,10 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://ynxrtjvyeymbiifehenk.supabase.co';
-const FALLBACK_KEY = Buffer.from('c2Jfc2VjcmV0X2h4dnEtUG5ldElfTF9MeEZ3WGpGQ1FfQ2tkbkZrTW0=', 'base64').toString('utf8');
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || FALLBACK_KEY;
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || 'https://ynxrtjvyeymbiifehenk.supabase.co';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
 
-const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+if (!SUPABASE_SERVICE_KEY) {
+  console.warn('[admin-update-user] SUPABASE_SERVICE_ROLE_KEY não configurada no ambiente.');
+}
+
+const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY || '', {
   auth: { persistSession: false, autoRefreshToken: false }
 });
 
@@ -19,6 +22,35 @@ export default async function handler(req, res) {
 
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  if (!SUPABASE_SERVICE_KEY) {
+    return res.status(500).json({ error: 'Chave de serviço Supabase não configurada no servidor.' });
+  }
+
+  // 1. Validar autenticação do chamador via Bearer token
+  const authHeader = req.headers.authorization || '';
+  if (!authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Não autenticado. Token de autorização ausente.' });
+  }
+
+  const token = authHeader.replace('Bearer ', '').trim();
+  const { data: userData, error: userErr } = await adminClient.auth.getUser(token);
+  if (userErr || !userData?.user) {
+    return res.status(401).json({ error: 'Sessão inválida ou expirada. Faça login novamente.' });
+  }
+
+  // 2. Validar que o usuário é super_admin
+  const callerId = userData.user.id;
+  const { data: roleRow, error: roleErr } = await adminClient
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', callerId)
+    .eq('role', 'super_admin')
+    .maybeSingle();
+
+  if (roleErr || !roleRow) {
+    return res.status(403).json({ error: 'Acesso negado. Apenas super administradores podem executar esta operação.' });
   }
 
   try {

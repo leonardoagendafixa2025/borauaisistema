@@ -99,9 +99,14 @@ export default function UsersPage() {
 
       // 1. Primary: create user via admin API (no rate limits, email auto-confirmed, no session swap)
       try {
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        const token = currentSession?.access_token;
         const resp = await fetch('/api/admin-update-user', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
           body: JSON.stringify({
             action: 'create-user',
             email: newEmail,

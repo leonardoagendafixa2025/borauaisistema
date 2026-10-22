@@ -141,14 +141,18 @@ export function usePlanFeatures(): PlanFeatures {
   const plan = data.subscription_plans as any;
   const tier = plan?.tier || 'basic';
   const limits = PLAN_LIMITS[tier] || PLAN_LIMITS.basic;
-  const status = data.status;
-  const isTrial = status === 'trial';
+  const status = String(data.status || '').toLowerCase();
+  const isTrial = status === 'trial' || status === 'trialing';
   
   // Check if trial has expired
-  const trialExpired = isTrial && data.trial_ends_at && new Date(data.trial_ends_at) < new Date();
+  const trialExpired = isTrial && data.trial_ends_at && new Date(data.trial_ends_at).getTime() < Date.now();
   
-  const isActive = !trialExpired && ['active', 'trial'].includes(status);
-  const isBlocked = trialExpired || ['suspended', 'cancelled', 'overdue'].includes(status);
+  // Check if active subscription period has expired (with a 24h grace window for recurring payment webhooks)
+  const periodExpired = !isTrial && data.current_period_end && (new Date(data.current_period_end).getTime() + 86400000) < Date.now();
+
+  const blockedStatuses = ['suspended', 'cancelled', 'canceled', 'overdue', 'past_due', 'unpaid', 'incomplete_expired'];
+  const isBlocked = Boolean(trialExpired || periodExpired || blockedStatuses.includes(status));
+  const isActive = !isBlocked && ['active', 'trial', 'trialing'].includes(status);
 
   return {
     tier,

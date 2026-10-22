@@ -38,8 +38,21 @@ Deno.serve(async (req) => {
 
     const cleanEmail = email.trim().toLowerCase();
 
+    // Valida se o chamador possui token autenticado
+    let callerUserId: string | null = null;
+    const authHeader = req.headers.get("authorization") || "";
+    if (authHeader.startsWith("Bearer ")) {
+      const token = authHeader.replace("Bearer ", "").trim();
+      const { data: authUser } = await admin.auth.getUser(token);
+      if (authUser?.user) {
+        callerUserId = authUser.user.id;
+      }
+    }
+
     // 1. Find or create the auth user
-    let userId = providedUserId;
+    let userId = providedUserId || callerUserId;
+    let isBrandNewUser = false;
+
     if (!userId) {
       const { data: usersPage, error: listErr } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
       if (!listErr && usersPage?.users) {
@@ -60,6 +73,7 @@ Deno.serve(async (req) => {
         });
         if (created?.user) {
           userId = created.user.id;
+          isBrandNewUser = true;
         } else if (createErr) {
           const { data: retryUsers } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
           const user = retryUsers?.users?.find((u) => u.email?.toLowerCase() === cleanEmail);
@@ -74,13 +88,16 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "user_not_found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Auto-confirm user so they don't get blocked by confirmation emails
-    try {
-      await admin.auth.admin.updateUserById(userId, {
-        email_confirm: true,
-        ...(password ? { password } : {}),
-      });
-    } catch (_) {}
+    // Proteção contra Account Takeover
+    if (!isBrandNewUser) {
+      if (callerUserId && callerUserId === userId) {
+        if (password) {
+          await admin.auth.admin.updateUserById(userId, { email_confirm: true, password });
+        }
+      } else {
+        await admin.auth.admin.updateUserById(userId, { email_confirm: true });
+      }
+    }
 
     // 2. If this user already owns a restaurant, just return it (idempotent)
     const { data: existing } = await admin

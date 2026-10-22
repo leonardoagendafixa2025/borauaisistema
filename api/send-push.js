@@ -1,9 +1,8 @@
 import webpush from 'web-push';
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://ynxrtjvyeymbiifehenk.supabase.co';
-const FALLBACK_KEY = Buffer.from('c2Jfc2VjcmV0X2h4dnEtUG5ldElfTF9MeEZ3WGpGQ1FfQ2tkbkZrTW0=', 'base64').toString('utf8');
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || FALLBACK_KEY;
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || 'https://ynxrtjvyeymbiifehenk.supabase.co';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
 
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || 'BJOZteu5NRKarKGeaue3DpKROnNvf90eviVFKCUn0eq-ZtCekAfRRnOGfYBk8y29Y6JyqO2kUaZDBc1bCPdTjag';
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || 'b7p7vyy2HlmcmWzZ91na780C18tcFONv8c6DrMyBfQY';
@@ -13,7 +12,11 @@ const GUEST_USER_ID = 'd1ac7098-2af3-4c5a-9d22-d1ebdef6db2a';
 
 webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+const supabase = SUPABASE_SERVICE_KEY
+  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false }
+    })
+  : null;
 
 function formatCurrency(val) {
   const n = Number(val) || 0;
@@ -179,8 +182,15 @@ export default async function handler(req, res) {
       payload
     } = bodyData;
 
+    if (!supabase) {
+      return res.status(500).json({ error: 'Serviço de push indisponível (credenciais não configuradas).' });
+    }
+
     // Se recebido via trigger de evento (DB trigger ou webhook)
     if (event_type) {
+      if (!restaurant_id) {
+        return res.status(400).json({ error: 'Eventos operacionais exigem restaurant_id.' });
+      }
       const generated = buildEventNotification(event_type, payload);
       if (generated) {
         title = title || generated.title;
@@ -189,6 +199,28 @@ export default async function handler(req, res) {
         tag = tag || generated.tag;
         vibrate = vibrate || generated.vibrate;
         actions = actions || generated.actions;
+      }
+    } else {
+      // Disparo manual (Broadcast Master / Campanha): Exige autenticação de super_admin
+      const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
+      if (!token) {
+        return res.status(401).json({ error: 'Disparo de campanha exige autenticação de super_admin.' });
+      }
+
+      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !user) {
+        return res.status(401).json({ error: 'Sessão inválida ou expirada.' });
+      }
+
+      const { data: roleCheck } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user.id)
+        .eq('role', 'super_admin')
+        .maybeSingle();
+
+      if (!roleCheck) {
+        return res.status(403).json({ error: 'Apenas super administradores podem disparar campanhas de push.' });
       }
     }
 

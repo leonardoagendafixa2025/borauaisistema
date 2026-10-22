@@ -316,15 +316,37 @@ export default function PublicMenu() {
     }
     // Validate opening hours
     if (settings?.opening_hours && typeof settings.opening_hours === 'object') {
-      const days = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+      const dayKeys = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+      const daysPt = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
       const now = new Date();
-      const dayName = days[now.getDay()];
-      const hours = (settings.opening_hours as Record<string, any>)[dayName];
-      if (hours && hours.open && hours.close) {
-        const currentTime = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-        if (currentTime < hours.open || currentTime > hours.close) {
-          toast.error(`Fora do horário de funcionamento (${hours.open} - ${hours.close})`);
+      const currentDayKey = dayKeys[now.getDay()];
+      const currentDayPt = daysPt[now.getDay()];
+
+      const hoursConfig = settings.opening_hours as Record<string, any>;
+      const hours = hoursConfig[currentDayKey] || hoursConfig[currentDayPt];
+
+      if (hours) {
+        if (hours.enabled === false) {
+          toast.error('O restaurante está fechado hoje');
           return;
+        }
+
+        if (hours.open && hours.close) {
+          const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+          let isOpenNow = false;
+
+          if (hours.close < hours.open) {
+            // Overnight hours (e.g., 18:00 to 02:00)
+            isOpenNow = currentTime >= hours.open || currentTime <= hours.close;
+          } else {
+            // Standard daytime hours (e.g., 11:00 to 23:00)
+            isOpenNow = currentTime >= hours.open && currentTime <= hours.close;
+          }
+
+          if (!isOpenNow) {
+            toast.error(`Fora do horário de funcionamento (${hours.open} - ${hours.close})`);
+            return;
+          }
         }
       }
     }

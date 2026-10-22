@@ -198,9 +198,12 @@ export function useMasterMetrics() {
   return useQuery({
     queryKey: ['master-metrics'],
     queryFn: async () => {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
       const [restaurants, orders, subscriptions] = await Promise.all([
         supabase.from('restaurants').select('id, status', { count: 'exact' }),
-        supabase.from('orders').select('total, created_at').gte('created_at', new Date().toISOString().split('T')[0]),
+        supabase.from('orders').select('total, created_at').gte('created_at', todayStart.toISOString()),
         supabase.from('subscriptions').select('monthly_price').eq('status', 'active'),
       ]);
       

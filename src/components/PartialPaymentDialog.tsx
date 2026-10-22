@@ -108,19 +108,25 @@ export default function PartialPaymentDialog({ open, onOpenChange, table, onTabl
       created_by: user?.id || null,
     });
 
-    // Also log financial transaction
-    await (supabase as any).from('financial_transactions').insert({
-      restaurant_id: restaurantId,
-      amount,
-      type: 'partial_payment',
-      description: `Pagamento parcial mesa ${table.number}${paidBy ? ` — ${paidBy}` : ''} (${payingPeople} ${payingPeople === 1 ? 'pessoa' : 'pessoas'})`,
-    });
-
-    setSubmitting(false);
     if (error) {
-      toast.error('Erro ao registrar pagamento');
+      setSubmitting(false);
+      toast.error('Erro ao registrar pagamento: ' + (error.message || ''));
       return;
     }
+
+    // Also log financial transaction
+    try {
+      await (supabase as any).from('financial_transactions').insert({
+        restaurant_id: restaurantId,
+        amount,
+        type: 'partial_payment',
+        description: `Pagamento parcial mesa ${table.number}${paidBy ? ` — ${paidBy}` : ''} (${payingPeople} ${payingPeople === 1 ? 'pessoa' : 'pessoas'})`,
+      });
+    } catch (ftErr) {
+      console.warn('[PartialPaymentDialog] Notice logging financial transaction:', ftErr);
+    }
+
+    setSubmitting(false);
     toast.success(`Pagamento de ${fmt(amount)} registrado!`);
     setCustomAmount('');
     setPaidBy('');

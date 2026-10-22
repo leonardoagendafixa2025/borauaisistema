@@ -17,12 +17,15 @@ export function useCustomerAuth() {
   const [loading, setLoading] = useState(true);
 
   const fetchProfile = useCallback(async (u: User) => {
-    // Get customer record linked to this user
-    const { data: customer } = await supabase
+    // Get customer record linked to this user (safe for multi-restaurant customers)
+    const { data: customerList } = await supabase
       .from('customers')
-      .select('id, name, phone')
+      .select('id, name, phone, updated_at')
       .eq('user_id', u.id)
-      .maybeSingle();
+      .order('updated_at', { ascending: false })
+      .limit(1);
+
+    const customer = customerList?.[0] || null;
 
     setProfile({
       id: u.id,

@@ -100,9 +100,14 @@ export default function BillingPage() {
       let data: any = null;
       let errorMsg = '';
       try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
         const res = await fetch('/api/create-portal-session', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({ restaurantId, environment: env, returnUrl: window.location.href }),
         });
         data = await res.json();

@@ -13,11 +13,14 @@ interface Props {
 
 export function StripeEmbeddedCheckout({ priceId, restaurantId, customerEmail, userId, returnUrl, onSwitched }: Props) {
   const fetchClientSecret = async (): Promise<string> => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+
     const payload = {
       priceId,
       restaurantId,
-      customerEmail,
-      userId,
+      customerEmail: customerEmail || session?.user?.email,
+      userId: userId || session?.user?.id,
       returnUrl,
       environment: getStripeEnvironment(),
     };
@@ -28,7 +31,10 @@ export function StripeEmbeddedCheckout({ priceId, restaurantId, customerEmail, u
     try {
       const resp = await fetch('/api/create-checkout', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify(payload),
       });
       data = await resp.json();
@@ -45,49 +51,17 @@ export function StripeEmbeddedCheckout({ priceId, restaurantId, customerEmail, u
           body: payload,
         });
         if (!fnErr && fnData) data = fnData;
+        else if (fnErr) errorMessage = fnErr.message;
       } catch (fnEx) {
         console.warn('[StripeEmbeddedCheckout] Edge function notice:', fnEx);
       }
     }
 
-    // Direct plan activation fallback
-    if (!data?.clientSecret && !data?.switched) {
-      try {
-        const { data: existingSub } = await supabase
-          .from('subscriptions')
-          .select('id')
-          .eq('restaurant_id', restaurantId)
-          .maybeSingle();
-
-        const periodEnd = new Date();
-        periodEnd.setDate(periodEnd.getDate() + 30);
-
-        if (existingSub) {
-          await supabase.from('subscriptions').update({
-            plan_id: priceId,
-            status: 'active',
-            current_period_end: periodEnd.toISOString(),
-            updated_at: new Date().toISOString()
-          }).eq('id', existingSub.id);
-        } else {
-          await supabase.from('subscriptions').insert({
-            restaurant_id: restaurantId,
-            plan_id: priceId,
-            status: 'active',
-            current_period_end: periodEnd.toISOString(),
-          });
-        }
-        data = { switched: true };
-      } catch (subErr) {
-        console.warn('[StripeEmbeddedCheckout] Direct update notice:', subErr);
-      }
-    }
-
     if (data?.switched) {
       onSwitched?.();
-      throw new Error('Plano trocado — recarregando...');
+      throw new Error('Plano alterado com sucesso! Recarregando...');
     }
-    if (!data?.clientSecret) throw new Error(errorMessage || 'clientSecret ausente');
+    if (!data?.clientSecret) throw new Error(errorMessage || 'Não foi possível carregar o formulário de pagamento.');
     return data.clientSecret;
   };
 

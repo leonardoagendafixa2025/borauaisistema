@@ -1,10 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://ynxrtjvyeymbiifehenk.supabase.co';
-const FALLBACK_KEY = Buffer.from('c2Jfc2VjcmV0X2h4dnEtUG5ldElfTF9MeEZ3WGpGQ1FfQ2tkbkZrTW0=', 'base64').toString('utf8');
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || FALLBACK_KEY;
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || 'https://ynxrtjvyeymbiifehenk.supabase.co';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
 
-const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+if (!SUPABASE_SERVICE_KEY) {
+  console.warn('[provision-restaurant] SUPABASE_SERVICE_ROLE_KEY não configurada no ambiente.');
+}
+
+const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY || '', {
   auth: { persistSession: false, autoRefreshToken: false }
 });
 
@@ -22,6 +25,10 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  if (!SUPABASE_SERVICE_KEY) {
+    return res.status(500).json({ error: 'Servidor Supabase não configurado.' });
+  }
+
   try {
     const { email, password, restaurantName, ownerName, phone, planTier, planId, userId: providedUserId } = req.body || {};
 
@@ -31,10 +38,23 @@ export default async function handler(req, res) {
 
     const cleanEmail = email.trim().toLowerCase();
 
-    // 1. Resolve user ID or auto-create/confirm user with admin service key (bypasses email rate limits)
-    let userId = providedUserId;
+    // Valida se o chamador possui token autenticado
+    let callerUserId = null;
+    const authHeader = req.headers.authorization || '';
+    if (authHeader.startsWith('Bearer ')) {
+      const token = authHeader.replace('Bearer ', '').trim();
+      const { data: authUser } = await admin.auth.getUser(token);
+      if (authUser?.user) {
+        callerUserId = authUser.user.id;
+      }
+    }
+
+    // 1. Resolve user ID ou cria novo usuário
+    let userId = providedUserId || callerUserId;
+    let isBrandNewUser = false;
+
     if (!userId) {
-      // Find existing user by email
+      // Verifica se o usuário já existe no Auth
       try {
         const { data: usersPage, error: listErr } = await admin.auth.admin.listUsers({ page: 1, perPage: 500 });
         if (!listErr && usersPage?.users) {
@@ -48,7 +68,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // If user does not exist yet and password was provided, create user directly (email_confirm: true bypasses rate limit)
+    // Se o usuário ainda não existe, cria com segurança
     if (!userId && password) {
       try {
         const { data: created, error: createErr } = await admin.auth.admin.createUser({
@@ -59,8 +79,9 @@ export default async function handler(req, res) {
         });
         if (created?.user) {
           userId = created.user.id;
+          isBrandNewUser = true;
         } else if (createErr) {
-          // If already exists or error, try finding again
+          // Se já existe, tenta localizar
           const { data: retryUsers } = await admin.auth.admin.listUsers({ page: 1, perPage: 500 });
           const retryUser = retryUsers?.users?.find(u => u.email?.toLowerCase() === cleanEmail);
           if (retryUser) {
@@ -78,14 +99,23 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Não foi possível identificar ou criar o usuário. Verifique e-mail e senha.' });
     }
 
-    // Auto-confirm user email and synchronize password so user can log in without verification email
-    try {
-      await admin.auth.admin.updateUserById(userId, {
-        email_confirm: true,
-        ...(password ? { password } : {})
-      });
-    } catch (confirmErr) {
-      console.warn('[provision-restaurant] Auto-confirm error (ignored):', confirmErr?.message);
+    // PROTEÇÃO CONTRA ACCOUNT TAKEOVER:
+    // Se o usuário já existia antes desta requisição, NUNCA altere sua senha
+    // a menos que ele esteja autenticado com sua própria sessão (callerUserId === userId).
+    if (isBrandNewUser) {
+      // Usuário acabou de ser criado nesta requisição, já confirmado
+    } else {
+      // Usuário pré-existente
+      if (callerUserId && callerUserId === userId) {
+        // Usuário logado legítimo autenticado
+        if (password) {
+          await admin.auth.admin.updateUserById(userId, { email_confirm: true, password });
+        }
+      } else {
+        // Chamador não autenticado tentando usar e-mail de conta já existente
+        // Não altera senha! Apenas confirma e-mail se ainda não estiver confirmado
+        await admin.auth.admin.updateUserById(userId, { email_confirm: true });
+      }
     }
 
     // 2. Check if user already owns a restaurant (idempotent)
