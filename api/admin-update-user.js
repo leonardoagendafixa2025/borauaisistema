@@ -7,9 +7,12 @@ if (!SUPABASE_SERVICE_KEY) {
   console.warn('[admin-update-user] SUPABASE_SERVICE_ROLE_KEY não configurada no ambiente.');
 }
 
-const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY || '', {
-  auth: { persistSession: false, autoRefreshToken: false }
-});
+const adminClient = SUPABASE_SERVICE_KEY
+  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false }
+    })
+  : null;
+
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');

@@ -7,9 +7,12 @@ if (!SUPABASE_SERVICE_KEY) {
   console.warn('[provision-restaurant] SUPABASE_SERVICE_ROLE_KEY não configurada no ambiente.');
 }
 
-const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY || '', {
-  auth: { persistSession: false, autoRefreshToken: false }
-});
+const admin = SUPABASE_SERVICE_KEY
+  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false }
+    })
+  : null;
+
 
 export default async function handler(req, res) {
   // CORS

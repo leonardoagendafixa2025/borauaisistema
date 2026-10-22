@@ -12,7 +12,7 @@ function apiDevMiddleware(): Plugin {
           try {
             const apiFilePath = path.resolve(__dirname, "api", `${endpoint}.js`);
             const { pathToFileURL } = await import("url");
-            const module = await import(pathToFileURL(apiFilePath).href);
+            const module = await import(`${pathToFileURL(apiFilePath).href}?t=${Date.now()}`);
             const handler = module.default;
             if (!handler) {
               return next();
