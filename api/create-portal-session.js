@@ -85,9 +85,19 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Nenhum cadastro de faturamento Stripe encontrado para este restaurante.' });
     }
 
-    const stripeSecretKey = process.env.STRIPE_SECRET_KEY || process.env.STRIPE_KEY;
+    let stripeSecretKey = process.env.STRIPE_SECRET_KEY || process.env.STRIPE_KEY;
     if (!stripeSecretKey) {
-      return res.status(400).json({ error: 'Portal Stripe indisponível no momento.' });
+      const { data: stripeSetting } = await admin
+        .from('platform_settings')
+        .select('value')
+        .eq('key', 'stripe_secret_key')
+        .maybeSingle();
+      if (stripeSetting?.value) {
+        stripeSecretKey = stripeSetting.value.trim();
+      }
+    }
+    if (!stripeSecretKey) {
+      return res.status(400).json({ error: 'Portal Stripe indisponível no momento. Chave secreta não configurada.' });
     }
 
     const { default: Stripe } = await import('stripe');

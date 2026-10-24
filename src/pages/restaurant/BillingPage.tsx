@@ -179,6 +179,7 @@ export default function BillingPage() {
                   setCheckoutPriceId(null);
                   qc.invalidateQueries({ queryKey: ['my-subscription', restaurantId, env] });
                 }}
+                onCancel={() => setCheckoutPriceId(null)}
               />
             </div>
           </div>

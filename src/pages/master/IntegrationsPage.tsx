@@ -47,13 +47,23 @@ const INTEGRATIONS: Integration[] = [
   {
     id: 'stripe',
     name: 'Stripe',
-    description: 'Cobrança recorrente das assinaturas SaaS dos restaurantes',
+    description: 'Cobrança recorrente das assinaturas SaaS dos restaurantes via cartão de crédito',
     icon: CheckCircle2,
     iconColor: 'text-violet-500',
     docsUrl: 'https://stripe.com/docs',
-    configFields: [],
-    checkFn: async () => {
-      return { status: 'connected', detail: 'Stripe gerenciado pelo Lovable' };
+    configFields: [
+      { key: 'stripe_secret_key', label: 'Chave Secreta Stripe (sk_live_... ou sk_test_...)', placeholder: 'sk_live_...', type: 'password' },
+      { key: 'stripe_publishable_key', label: 'Chave Pública Stripe (pk_live_... ou pk_test_...)', placeholder: 'pk_live_...' },
+      { key: 'stripe_webhook_secret', label: 'Segredo do Webhook Stripe (whsec_...)', placeholder: 'whsec_...', type: 'password' },
+    ],
+    checkFn: async (settings) => {
+      const secret = settings.stripe_secret_key;
+      if (!secret) return { status: 'misconfigured', detail: 'Chave secreta (sk_live_... ou sk_test_...) não configurada' };
+      if (!secret.startsWith('sk_live_') && !secret.startsWith('sk_test_')) {
+        return { status: 'misconfigured', detail: 'Formato inválido (deve iniciar com sk_live_ ou sk_test_)' };
+      }
+      const mode = secret.startsWith('sk_live_') ? 'Modo Produção (Live)' : 'Modo Testes (Sandbox)';
+      return { status: 'connected', detail: `Ativo · ${mode}` };
     },
   },
   {

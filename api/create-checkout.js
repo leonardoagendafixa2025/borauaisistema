@@ -86,76 +86,159 @@ export default async function handler(req, res) {
     const planPrice = Number(plan?.price) || 0;
     const planId = plan?.id;
 
-    // Check if Stripe is configured
-    const stripeSecretKey = process.env.STRIPE_SECRET_KEY || process.env.STRIPE_KEY;
+    // Check if Stripe is configured via env or platform_settings
+    let stripeSecretKey = process.env.STRIPE_SECRET_KEY || process.env.STRIPE_KEY;
+    if (!stripeSecretKey) {
+      const { data: stripeSetting } = await admin
+        .from('platform_settings')
+        .select('value')
+        .eq('key', 'stripe_secret_key')
+        .maybeSingle();
+      if (stripeSetting?.value) {
+        stripeSecretKey = stripeSetting.value.trim();
+      }
+    }
     
     if (stripeSecretKey) {
       try {
         const { default: Stripe } = await import('stripe');
         const stripe = new Stripe(stripeSecretKey);
 
-        const prices = await stripe.prices.list({ lookup_keys: [priceId] });
-        if (prices.data.length > 0) {
-          const stripePrice = prices.data[0];
+        let stripePriceId = null;
 
-          // Find or create customer
-          let customerId;
-          const targetEmail = customerEmail || userData.user.email;
-          if (targetEmail) {
+        // 1. Tentar buscar por ID direto (price_xxx)
+        if (priceId && priceId.startsWith('price_')) {
+          try {
+            const p = await stripe.prices.retrieve(priceId);
+            if (p && p.active) stripePriceId = p.id;
+          } catch (e) {
+            console.warn('[create-checkout] Preço por ID não encontrado no Stripe:', e.message);
+          }
+        }
+
+        // 2. Tentar buscar por lookup_key fornecido
+        if (!stripePriceId && priceId) {
+          try {
+            const prices = await stripe.prices.list({ lookup_keys: [priceId] });
+            if (prices.data.length > 0) {
+              stripePriceId = prices.data[0].id;
+            }
+          } catch (e) {
+            console.warn('[create-checkout] Preço por lookup_key não encontrado no Stripe:', e.message);
+          }
+        }
+
+        // 3. Tentar buscar por plan.stripe_lookup_key
+        if (!stripePriceId && plan?.stripe_lookup_key) {
+          try {
+            const prices = await stripe.prices.list({ lookup_keys: [plan.stripe_lookup_key] });
+            if (prices.data.length > 0) {
+              stripePriceId = prices.data[0].id;
+            }
+          } catch (e) {
+            console.warn('[create-checkout] Preço por plan.stripe_lookup_key não encontrado no Stripe:', e.message);
+          }
+        }
+
+        // Find or create customer
+        let customerId;
+        const targetEmail = customerEmail || userData.user.email;
+        if (targetEmail) {
+          try {
             const existingCust = await stripe.customers.list({ email: targetEmail, limit: 1 });
             if (existingCust.data.length > 0) {
               customerId = existingCust.data[0].id;
             }
+          } catch (e) {
+            console.warn('[create-checkout] Erro ao buscar cliente Stripe por e-mail:', e.message);
           }
-          if (!customerId) {
-            const newCust = await stripe.customers.create({
-              ...(targetEmail && { email: targetEmail }),
-              metadata: { restaurantId, userId: callerId }
-            });
-            customerId = newCust.id;
-          }
-
-          // Check if subscription exists and can be updated
-          const { data: existingSub } = await admin
-            .from('subscriptions')
-            .select('stripe_subscription_id')
-            .eq('restaurant_id', restaurantId)
-            .in('status', ['active', 'trialing', 'past_due'])
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-          if (existingSub?.stripe_subscription_id) {
-            const sub = await stripe.subscriptions.retrieve(existingSub.stripe_subscription_id);
-            await stripe.subscriptions.update(existingSub.stripe_subscription_id, {
-              items: [{ id: sub.items.data[0].id, price: stripePrice.id }],
-              proration_behavior: 'always_invoice',
-              cancel_at_period_end: false,
-              metadata: { restaurantId, userId: callerId }
-            });
-            return res.status(200).json({ switched: true });
-          }
-
-          const session = await stripe.checkout.sessions.create({
-            line_items: [{ price: stripePrice.id, quantity: 1 }],
-            mode: 'subscription',
-            ui_mode: 'embedded_page',
-            return_url: returnUrl || `${req.headers.origin || ''}/restaurant/billing/sucesso?session_id={CHECKOUT_SESSION_ID}`,
-            customer: customerId,
-            metadata: { restaurantId, userId: callerId },
-            subscription_data: { metadata: { restaurantId, userId: callerId } }
-          });
-
-          return res.status(200).json({ clientSecret: session.client_secret });
         }
+        if (!customerId) {
+          const newCust = await stripe.customers.create({
+            ...(targetEmail && { email: targetEmail }),
+            metadata: { restaurantId, userId: callerId }
+          });
+          customerId = newCust.id;
+        }
+
+        // Check if subscription exists and can be updated
+        const { data: existingSub } = await admin
+          .from('subscriptions')
+          .select('stripe_subscription_id')
+          .eq('restaurant_id', restaurantId)
+          .in('status', ['active', 'trialing', 'past_due'])
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (existingSub?.stripe_subscription_id) {
+          const sub = await stripe.subscriptions.retrieve(existingSub.stripe_subscription_id);
+          let targetPriceId = stripePriceId;
+          if (!targetPriceId) {
+            const prod = await stripe.products.create({
+              name: `Plano ${plan?.name || 'Bora Uai'}`,
+              description: plan?.description || undefined,
+            });
+            const pr = await stripe.prices.create({
+              product: prod.id,
+              currency: 'brl',
+              unit_amount: Math.round(planPrice * 100),
+              recurring: { interval: 'month' },
+              ...(plan?.stripe_lookup_key ? { lookup_key: plan.stripe_lookup_key } : {}),
+            });
+            targetPriceId = pr.id;
+          }
+
+          await stripe.subscriptions.update(existingSub.stripe_subscription_id, {
+            items: [{ id: sub.items.data[0].id, price: targetPriceId }],
+            proration_behavior: 'always_invoice',
+            cancel_at_period_end: false,
+            metadata: { restaurantId, userId: callerId }
+          });
+          return res.status(200).json({ switched: true });
+        }
+
+        // Linha de item: se temos priceId do Stripe usa ele; senão usa price_data inline
+        const lineItems = stripePriceId
+          ? [{ price: stripePriceId, quantity: 1 }]
+          : [
+              {
+                price_data: {
+                  currency: 'brl',
+                  product_data: {
+                    name: `Plano ${plan?.name || 'Bora Uai'} - Sistema para Bares e Restaurantes`,
+                    description: plan?.description || 'Assinatura mensal',
+                  },
+                  unit_amount: Math.round(planPrice * 100),
+                  recurring: { interval: 'month' },
+                },
+                quantity: 1,
+              },
+            ];
+
+        const session = await stripe.checkout.sessions.create({
+          line_items: lineItems,
+          mode: 'subscription',
+          ui_mode: 'embedded_page',
+          return_url: returnUrl || `${req.headers.origin || ''}/restaurant/billing/sucesso?session_id={CHECKOUT_SESSION_ID}`,
+          customer: customerId,
+          metadata: { restaurantId, userId: callerId },
+          subscription_data: { metadata: { restaurantId, userId: callerId } }
+        });
+
+        return res.status(200).json({ clientSecret: session.client_secret });
       } catch (stripeErr) {
         console.error('[create-checkout] Erro Stripe:', stripeErr.message);
-        return res.status(502).json({ error: `Erro no gateway de pagamento: ${stripeErr.message}` });
+        return res.status(502).json({
+          error: `Erro no gateway de pagamento Stripe: ${stripeErr.message}`,
+          code: 'STRIPE_API_ERROR'
+        });
       }
     }
 
     return res.status(503).json({
-      error: 'Gateway de pagamento Stripe não configurado no servidor. Configure a chave STRIPE_SECRET_KEY para ativar assinaturas comerciais.'
+      error: 'Gateway de pagamento Stripe não configurado no servidor. Configure a chave STRIPE_SECRET_KEY na Vercel ou no painel Master > Integrações.',
+      code: 'STRIPE_NOT_CONFIGURED'
     });
   } catch (err) {
     console.error('[create-checkout] Error:', err);
