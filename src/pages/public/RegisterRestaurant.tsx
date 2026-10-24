@@ -6,6 +6,7 @@ import { publicSupabase } from '@/integrations/supabase/public-client';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import { SEO } from '@/components/seo/SEO';
+import { getApiUrl } from '@/lib/api';
 
 export default function RegisterRestaurant() {
   const navigate = useNavigate();
@@ -115,7 +116,7 @@ export default function RegisterRestaurant() {
 
       // Primary: call serverless /api/provision-restaurant
       try {
-        const resp = await fetch('/api/provision-restaurant', {
+        const resp = await fetch(getApiUrl('/api/provision-restaurant'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -141,6 +142,97 @@ export default function RegisterRestaurant() {
           }
         } catch (e: any) {
           console.warn('[RegisterRestaurant] Edge function notice:', e);
+        }
+      }
+
+      // Tertiary fallback: authenticated client-side onboarding via Supabase RLS
+      if (!provisioned) {
+        try {
+          let currentSession = (await supabase.auth.getSession()).data.session;
+          if (!currentSession?.user) {
+            const { data: signInData } = await supabase.auth.signInWithPassword({
+              email: cleanEmail,
+              password: form.password,
+            });
+            currentSession = signInData.session;
+          }
+
+          const currentUserId = currentSession?.user?.id || userId;
+          if (currentUserId) {
+            const { data: existingRest } = await supabase
+              .from('restaurants')
+              .select('id, slug')
+              .eq('owner_id', currentUserId)
+              .maybeSingle();
+
+            let restId = existingRest?.id;
+
+            if (!restId) {
+              const baseSlug = form.restaurantName
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-|-$/g, '') || 'restaurante';
+              const slug = `${baseSlug}-${Date.now().toString().slice(-4)}`;
+
+              const { data: newRest, error: restErr } = await supabase
+                .from('restaurants')
+                .insert({
+                  name: form.restaurantName,
+                  slug,
+                  owner_id: currentUserId,
+                  phone: form.phone || null,
+                  email: cleanEmail,
+                  status: 'trial',
+                })
+                .select()
+                .single();
+
+              if (!restErr && newRest) {
+                restId = newRest.id;
+              }
+            }
+
+            if (restId) {
+              try {
+                await supabase.from('restaurant_settings').insert({ restaurant_id: restId });
+              } catch (_) {}
+
+              try {
+                await supabase.from('user_roles').insert({
+                  user_id: currentUserId,
+                  role: 'owner',
+                  restaurant_id: restId,
+                });
+              } catch (_) {}
+
+              const targetPlanId = form.planId.startsWith('fallback-')
+                ? (plans.find((p: any) => p.tier === planTier)?.id || plans[0]?.id)
+                : form.planId;
+
+              if (targetPlanId) {
+                try {
+                  const trialEnd = new Date(Date.now() + 14 * 86400000).toISOString();
+                  await supabase.from('subscriptions').insert({
+                    restaurant_id: restId,
+                    plan_id: targetPlanId,
+                    status: 'trial',
+                    trial_ends_at: trialEnd,
+                    current_period_end: trialEnd,
+                  });
+                } catch (_) {}
+              }
+
+              try {
+                localStorage.setItem('borauai_active_restaurant_id', restId);
+              } catch (_) {}
+
+              provisioned = true;
+            }
+          }
+        } catch (clientProvErr: any) {
+          console.warn('[RegisterRestaurant] Client onboarding fallback notice:', clientProvErr?.message);
         }
       }
 

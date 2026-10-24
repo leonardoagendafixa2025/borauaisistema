@@ -2,6 +2,7 @@
  * Helper para envio de notificações Push operacionais diretamente do cliente.
  * Atua em conjunto com os triggers do PostgreSQL como garantia de entrega imediata.
  */
+import { getApiUrl } from './api';
 
 interface NewOrderPayload {
   order_id: string;
@@ -36,7 +37,7 @@ interface OrderStatusPayload {
 
 async function postPushApi(body: Record<string, any>) {
   try {
-    const res = await fetch('/api/send-push', {
+    const res = await fetch(getApiUrl('/api/send-push'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

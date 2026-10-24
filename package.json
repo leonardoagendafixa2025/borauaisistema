@@ -10,7 +10,7 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "cap:sync": "npx cap sync android",
-    "build:apk": "vite build && npx cap sync android && cmd.exe /c \"cd /d android && gradlew.bat assembleDebug\"",
+    "build:apk": "vite build && npx cap sync android && cmd.exe /c \"cd /d android && gradlew.bat assembleDebug\" && powershell -Command \"Copy-Item android/app/build/outputs/apk/debug/app-debug.apk borauai.apk -Force\"",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",

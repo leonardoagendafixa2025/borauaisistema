@@ -8,6 +8,7 @@ import { CreditCard, Check, AlertTriangle, Loader2, ArrowLeft, Calendar, Receipt
 import { toast } from 'sonner';
 import { StripeEmbeddedCheckout } from '@/components/StripeEmbeddedCheckout';
 import { PaymentTestModeBanner } from '@/components/PaymentTestModeBanner';
+import { getApiUrl } from '@/lib/api';
 
 export default function BillingPage() {
   const { restaurantId, user } = useAuth();
@@ -105,7 +106,7 @@ export default function BillingPage() {
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (token) headers['Authorization'] = `Bearer ${token}`;
 
-        const res = await fetch('/api/create-portal-session', {
+        const res = await fetch(getApiUrl('/api/create-portal-session'), {
           method: 'POST',
           headers,
           body: JSON.stringify({ restaurantId, environment: env, returnUrl: window.location.href }),

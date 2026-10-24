@@ -5,6 +5,7 @@ const config: CapacitorConfig = {
   appName: 'Bora Uai',
   webDir: 'dist',
   server: {
+    url: 'https://borauai.com',
     androidScheme: 'https',
     cleartext: true
   }

@@ -1,6 +1,7 @@
 import { EmbeddedCheckoutProvider, EmbeddedCheckout } from "@stripe/react-stripe-js";
 import { getStripe, getStripeEnvironment } from "@/lib/stripe";
 import { supabase } from "@/integrations/supabase/client";
+import { getApiUrl } from "@/lib/api";
 
 interface Props {
   priceId: string;
@@ -29,7 +30,7 @@ export function StripeEmbeddedCheckout({ priceId, restaurantId, customerEmail, u
     let errorMessage = '';
 
     try {
-      const resp = await fetch('/api/create-checkout', {
+      const resp = await fetch(getApiUrl('/api/create-checkout'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Store, Loader2, ArrowLeft, Mail, KeyRound, Sparkles, CheckCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 import logoImg from '@/assets/logo.png';
 
 export default function RestaurantLogin() {

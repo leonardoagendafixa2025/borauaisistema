@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { getApiUrl } from '@/lib/api';
 import type { Database } from '@/integrations/supabase/types';
 
 type AppRole = Database['public']['Enums']['app_role'];
@@ -101,7 +102,7 @@ export default function UsersPage() {
       try {
         const { data: { session: currentSession } } = await supabase.auth.getSession();
         const token = currentSession?.access_token;
-        const resp = await fetch('/api/admin-update-user', {
+        const resp = await fetch(getApiUrl('/api/admin-update-user'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

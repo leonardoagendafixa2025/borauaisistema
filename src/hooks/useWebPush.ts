@@ -9,6 +9,7 @@ import {
   isStandalonePWA,
   isIOS,
 } from '@/lib/pushConfig';
+import { getApiUrl } from '@/lib/api';
 
 export type PushStatus = 'unsupported' | 'needs-pwa' | 'denied' | 'unsubscribed' | 'subscribed';
 
@@ -144,7 +145,7 @@ export function useWebPush(restaurantIdOverride?: string | null) {
       }
 
       // Salva no backend através da API /api/send-push (suporta visitantes e usuários logados)
-      const resp = await fetch('/api/send-push', {
+      const resp = await fetch(getApiUrl('/api/send-push'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -177,7 +178,7 @@ export function useWebPush(restaurantIdOverride?: string | null) {
       const sub = await reg?.pushManager.getSubscription();
       if (sub) {
         // Remove do servidor
-        await fetch('/api/send-push', {
+        await fetch(getApiUrl('/api/send-push'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -209,7 +210,7 @@ export function useWebPush(restaurantIdOverride?: string | null) {
         const sub = await reg?.pushManager.getSubscription();
         if (sub) {
           const json = sub.toJSON() as any;
-          await fetch('/api/send-push', {
+          await fetch(getApiUrl('/api/send-push'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
