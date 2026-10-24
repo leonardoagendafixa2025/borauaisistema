@@ -87,12 +87,19 @@ export default async function handler(req, res) {
     const planId = plan?.id;
 
     // Check if Stripe is configured via env or platform_settings
-    let stripeSecretKey = process.env.STRIPE_SECRET_KEY || process.env.STRIPE_KEY;
+    let stripeSecretKey = 
+      process.env.STRIPE_SECRET_KEY || 
+      process.env.STRIPE_LIVE_API_KEY ||
+      process.env.STRIPE_API_KEY || 
+      process.env.STRIPE_KEY || 
+      process.env.STRIPE_SECRET ||
+      process.env.STRIPE_SANDBOX_API_KEY;
+
     if (!stripeSecretKey) {
       const { data: stripeSetting } = await admin
         .from('platform_settings')
         .select('value')
-        .eq('key', 'stripe_secret_key')
+        .in('key', ['stripe_secret_key', 'STRIPE_SECRET_KEY', 'STRIPE_LIVE_API_KEY', 'stripe_api_key'])
         .maybeSingle();
       if (stripeSetting?.value) {
         stripeSecretKey = stripeSetting.value.trim();

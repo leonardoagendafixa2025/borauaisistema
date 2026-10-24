@@ -85,12 +85,19 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Nenhum cadastro de faturamento Stripe encontrado para este restaurante.' });
     }
 
-    let stripeSecretKey = process.env.STRIPE_SECRET_KEY || process.env.STRIPE_KEY;
+    let stripeSecretKey = 
+      process.env.STRIPE_SECRET_KEY || 
+      process.env.STRIPE_LIVE_API_KEY ||
+      process.env.STRIPE_API_KEY || 
+      process.env.STRIPE_KEY || 
+      process.env.STRIPE_SECRET ||
+      process.env.STRIPE_SANDBOX_API_KEY;
+
     if (!stripeSecretKey) {
       const { data: stripeSetting } = await admin
         .from('platform_settings')
         .select('value')
-        .eq('key', 'stripe_secret_key')
+        .in('key', ['stripe_secret_key', 'STRIPE_SECRET_KEY', 'STRIPE_LIVE_API_KEY', 'stripe_api_key'])
         .maybeSingle();
       if (stripeSetting?.value) {
         stripeSecretKey = stripeSetting.value.trim();
