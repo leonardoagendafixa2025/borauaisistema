@@ -1,16 +1,30 @@
-import { useState, useRef, useEffect } from 'react';
-import { Bell, Check, CheckCheck, ExternalLink } from 'lucide-react';
+import { useState, useRef, useEffect, useMemo } from 'react';
+import { Bell, CheckCheck, ExternalLink } from 'lucide-react';
 import { useNotifications } from '@/hooks/useNotifications';
+import { supabase } from '@/integrations/supabase/client';
+import { useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
+
+// Tipos de notificações operacionais exclusivas de restaurantes (não devem aparecer no Painel Master)
+const RESTAURANT_OPERATIONAL_TYPES = new Set([
+  'new_order',
+  'order_completed',
+  'waiter_call',
+  'music_request',
+  'inventory_low',
+  'table_call',
+  'driver_assigned',
+]);
 
 const typeIcons: Record<string, string> = {
   new_restaurant: '🏪',
   subscription_overdue: '⚠️',
   subscription_cancelled: '❌',
   trial_expiring: '⏰',
-  new_order: '🛒',
-  waiter_call: '🔔',
-  order_completed: '✅',
+  payment_received: '💰',
+  security_alert: '🛡️',
+  platform_alert: '📢',
   info: 'ℹ️',
 };
 
@@ -18,7 +32,25 @@ export default function NotificationBell() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
-  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const { notifications: rawNotifications, markAsRead } = useNotifications();
+
+  // Filtrar para exibir APENAS notificações da plataforma no Painel Master (SaaS)
+  const notifications = useMemo(() => {
+    return rawNotifications.filter(n => !RESTAURANT_OPERATIONAL_TYPES.has(n.type));
+  }, [rawNotifications]);
+
+  const unreadCount = useMemo(() => {
+    return notifications.filter(n => !n.read).length;
+  }, [notifications]);
+
+  const handleMarkAllAsRead = async () => {
+    const unreadIds = notifications.filter(n => !n.read).map(n => n.id);
+    if (unreadIds.length === 0 || !user?.id) return;
+    await supabase.from('notifications').update({ read: true }).in('id', unreadIds);
+    queryClient.invalidateQueries({ queryKey: ['notifications', user.id] });
+  };
 
   // Close on click outside
   useEffect(() => {
@@ -68,7 +100,7 @@ export default function NotificationBell() {
             <h3 className="font-heading font-semibold text-sm">Notificações</h3>
             {unreadCount > 0 && (
               <button
-                onClick={markAllAsRead}
+                onClick={handleMarkAllAsRead}
                 className="text-xs text-primary hover:text-primary/80 font-medium flex items-center gap-1"
               >
                 <CheckCheck className="h-3.5 w-3.5" /> Marcar todas como lidas
