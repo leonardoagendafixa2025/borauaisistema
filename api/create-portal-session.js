@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import Stripe from 'stripe';
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || 'https://ynxrtjvyeymbiifehenk.supabase.co';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
@@ -107,7 +108,6 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Portal Stripe indisponível no momento. Chave secreta não configurada.' });
     }
 
-    const { default: Stripe } = await import('stripe');
     const stripe = new Stripe(stripeSecretKey);
 
     const portal = await stripe.billingPortal.sessions.create({
