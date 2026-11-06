@@ -87,9 +87,11 @@ export default function MasterDashboard() {
                   </thead>
                   <tbody>
                     {restaurants.map(r => {
-                      const s = statusLabels[r.status] || statusLabels.active;
                       const sub = (r.subscriptions as any)?.[0];
                       const plan = sub?.subscription_plans;
+                      const isSuspended = r.status === 'suspended';
+                      const effectiveStatus = isSuspended ? 'suspended' : (sub?.status || r.status);
+                      const s = statusLabels[effectiveStatus] || statusLabels[r.status] || statusLabels.active;
                       return (
                         <tr key={r.id} className="border-t border-border/60 hover:bg-muted/30 transition-colors">
                           <td className="px-5 py-3">

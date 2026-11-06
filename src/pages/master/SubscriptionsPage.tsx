@@ -84,11 +84,21 @@ export default function SubscriptionsPage() {
   // Subscription mutations
   const updateSubStatusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: SubscriptionStatus }) => {
-      const { error } = await supabase.from('subscriptions').update({ status }).eq('id', id);
+      const updateData: any = { status };
+      if (status === 'active') {
+        updateData.trial_ends_at = null;
+      }
+      const { data, error } = await supabase.from('subscriptions').update(updateData).eq('id', id).select('restaurant_id').maybeSingle();
       if (error) throw error;
+      if (data?.restaurant_id) {
+        const restStatus = status === 'trial' ? 'trial' : status === 'suspended' ? 'suspended' : status === 'cancelled' ? 'cancelled' : 'active';
+        await supabase.from('restaurants').update({ status: restStatus as any }).eq('id', data.restaurant_id);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['all-subscriptions'] });
+      queryClient.invalidateQueries({ queryKey: ['master-restaurants'] });
+      queryClient.invalidateQueries({ queryKey: ['master-metrics'] });
       toast.success('Status atualizado');
     },
     onError: () => toast.error('Erro ao atualizar'),
@@ -96,16 +106,27 @@ export default function SubscriptionsPage() {
 
   const updateSubMutation = useMutation({
     mutationFn: async (sub: any) => {
-      const { error } = await supabase.from('subscriptions').update({
+      const updateData: any = {
         plan_id: sub.plan_id,
         monthly_price: sub.monthly_price,
         status: sub.status,
         platform_fee_percent: sub.platform_fee_percent,
-      }).eq('id', sub.id);
+      };
+      if (sub.status === 'active') {
+        updateData.trial_ends_at = null;
+      }
+      const { error } = await supabase.from('subscriptions').update(updateData).eq('id', sub.id);
       if (error) throw error;
+
+      if (sub.restaurant_id) {
+        const restStatus = sub.status === 'trial' ? 'trial' : sub.status === 'suspended' ? 'suspended' : sub.status === 'cancelled' ? 'cancelled' : 'active';
+        await supabase.from('restaurants').update({ status: restStatus as any }).eq('id', sub.restaurant_id);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['all-subscriptions'] });
+      queryClient.invalidateQueries({ queryKey: ['master-restaurants'] });
+      queryClient.invalidateQueries({ queryKey: ['master-metrics'] });
       setEditingSub(null);
       toast.success('Assinatura atualizada');
     },

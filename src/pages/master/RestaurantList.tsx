@@ -53,6 +53,7 @@ export default function RestaurantList() {
   // Change plan modal
   const [planRestaurant, setPlanRestaurant] = useState<any>(null);
   const [newPlanId, setNewPlanId] = useState('');
+  const [newPlanStatus, setNewPlanStatus] = useState<'active' | 'trial'>('active');
   const [planSaving, setPlanSaving] = useState(false);
 
   // Delete confirm modal
@@ -329,6 +330,7 @@ export default function RestaurantList() {
   const openChangePlan = (r: any) => {
     const sub = (r.subscriptions as any)?.[0];
     setNewPlanId(sub?.plan_id || '');
+    setNewPlanStatus(sub?.status === 'trial' || r.status === 'trial' ? 'trial' : 'active');
     setPlanRestaurant(r);
   };
   const handleChangePlan = async () => {
@@ -337,10 +339,18 @@ export default function RestaurantList() {
     try {
       const plan = plans.find(p => p.id === newPlanId);
       const sub = (planRestaurant.subscriptions as any)?.[0];
+      const nextStatus = newPlanStatus;
       if (sub) {
-        const { error } = await supabase.from('subscriptions').update({
-          plan_id: newPlanId, monthly_price: plan?.price || 0,
-        }).eq('id', sub.id);
+        const updatePayload: any = {
+          plan_id: newPlanId,
+          monthly_price: plan?.price || 0,
+          status: nextStatus,
+        };
+        if (nextStatus === 'active') {
+          updatePayload.trial_ends_at = null;
+          updatePayload.current_period_end = new Date(Date.now() + 30 * 86400000).toISOString();
+        }
+        const { error } = await supabase.from('subscriptions').update(updatePayload).eq('id', sub.id);
         if (error) {
           const resp = await fetch('/api/create-checkout', {
             method: 'POST',
@@ -351,10 +361,13 @@ export default function RestaurantList() {
         }
       } else {
         const { error } = await supabase.from('subscriptions').insert({
-          restaurant_id: planRestaurant.id, plan_id: newPlanId,
-          status: 'active', monthly_price: plan?.price || 0,
+          restaurant_id: planRestaurant.id,
+          plan_id: newPlanId,
+          status: nextStatus,
+          monthly_price: plan?.price || 0,
           current_period_start: new Date().toISOString(),
           current_period_end: new Date(Date.now() + 30 * 86400000).toISOString(),
+          trial_ends_at: nextStatus === 'trial' ? new Date(Date.now() + 14 * 86400000).toISOString() : null,
         });
         if (error) {
           const resp = await fetch('/api/create-checkout', {
@@ -365,8 +378,14 @@ export default function RestaurantList() {
           if (!resp.ok) throw error;
         }
       }
+
+      // Synchronize restaurant.status so the badge always matches
+      await supabase.from('restaurants').update({
+        status: nextStatus,
+      }).eq('id', planRestaurant.id);
+
       invalidate();
-      toast.success(`Plano alterado para ${plan?.name}!`);
+      toast.success(`Plano alterado para ${plan?.name} (${nextStatus === 'active' ? 'Ativo' : 'Trial'})!`);
       setPlanRestaurant(null);
     } catch (err: any) { toast.error(err.message); }
     finally { setPlanSaving(false); }
@@ -521,10 +540,11 @@ export default function RestaurantList() {
           <ScrollReveal delay={120}>
             <div className="grid gap-4">
               {filtered.map(r => {
-                const s = statusLabels[r.status] || statusLabels.active;
                 const sub = (r.subscriptions as any)?.[0];
                 const plan = sub?.subscription_plans;
                 const isSuspended = r.status === 'suspended';
+                const effectiveStatus = isSuspended ? 'suspended' : (sub?.status || r.status);
+                const s = statusLabels[effectiveStatus] || statusLabels[r.status] || statusLabels.active;
                 return (
                   <div key={r.id} className="card-elevated-hover p-5">
                     <div className="flex items-start justify-between gap-4">
@@ -832,6 +852,36 @@ export default function RestaurantList() {
             <DialogDescription>Selecione o novo plano para este restaurante</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">
+                Situação da Assinatura
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setNewPlanStatus('active')}
+                  className={`px-3 py-2 text-xs font-medium rounded-lg border transition-all text-center ${
+                    newPlanStatus === 'active'
+                      ? 'bg-success/15 border-success text-success font-bold'
+                      : 'border-input hover:bg-muted/50 text-muted-foreground'
+                  }`}
+                >
+                  ✓ Ativo (Oficial)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewPlanStatus('trial')}
+                  className={`px-3 py-2 text-xs font-medium rounded-lg border transition-all text-center ${
+                    newPlanStatus === 'trial'
+                      ? 'bg-primary/15 border-primary text-primary font-bold'
+                      : 'border-input hover:bg-muted/50 text-muted-foreground'
+                  }`}
+                >
+                  ⏱ Em Teste (Trial 14d)
+                </button>
+              </div>
+            </div>
+
             <div className="space-y-2">
               {plans.map(p => (
                 <label key={p.id} className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${newPlanId === p.id ? 'border-primary bg-primary/5' : 'border-input hover:bg-muted/50'}`}>
