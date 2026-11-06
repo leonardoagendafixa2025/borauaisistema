@@ -23,9 +23,9 @@ export default function RegisterRestaurant() {
 
   // Fallback estático: garante que a tela nunca trava se o banco estiver lento.
   const FALLBACK_PLANS = [
-    { id: 'fallback-basic', name: 'Básico', tier: 'basic', price: 69.99, description: 'Ideal para começar: cardápio digital, pedidos e mesas.', features: ['Cardápio digital', 'QR Code mesas', 'Pedidos online', 'Suporte por e-mail'] },
-    { id: 'fallback-pro', name: 'Pro', tier: 'pro', price: 119.99, description: 'Para quem quer crescer: KDS, delivery, CRM e relatórios.', features: ['Tudo do Básico', 'KDS / Cozinha', 'Delivery + entregadores', 'CRM de clientes', 'Relatórios completos'] },
-    { id: 'fallback-premium', name: 'Premium', tier: 'premium', price: 199.99, description: 'Operação completa: balada, DJ, estoque, IA e multi-usuário.', features: ['Tudo do Pro', 'Modo Balada + DJ', 'Estoque + fichas', 'IA insights', 'Usuários ilimitados'] },
+    { id: 'fallback-basic', name: 'Básico', tier: 'basic', price: 49.99, description: 'Ideal para começar: cardápio digital, pedidos e mesas.', features: ['Cardápio digital', 'QR Code mesas', 'Pedidos online', 'Suporte por e-mail'] },
+    { id: 'fallback-pro', name: 'Pro', tier: 'pro', price: 89.99, description: 'Para quem quer crescer: KDS, delivery, CRM e relatórios.', features: ['Tudo do Básico', 'KDS / Cozinha', 'Delivery + entregadores', 'CRM de clientes', 'Relatórios completos'] },
+    { id: 'fallback-premium', name: 'Premium', tier: 'premium', price: 149.99, description: 'Operação completa: balada, DJ, estoque, IA e multi-usuário.', features: ['Tudo do Pro', 'Modo Balada + DJ', 'Estoque + fichas', 'IA insights', 'Usuários ilimitados'] },
   ];
 
   const { data: plansRaw, isLoading: plansLoading, isError: plansError, refetch: refetchPlans, isFetching: plansFetching } = useQuery({

@@ -21,21 +21,21 @@ export interface ModuleSection {
 export const PLANS_INFO = {
   basic: {
     name: 'Básico',
-    price: 69.99,
+    price: 49.99,
     target: 'Lanchonetes pequenas, food trucks, delivery iniciante',
     sweetSpot: 'Estabelecimento com até 100 itens no cardápio, sem salão',
     color: 'bg-slate-500',
   },
   professional: {
     name: 'Profissional',
-    price: 119.99,
+    price: 89.99,
     target: 'Restaurantes com salão + delivery, pizzarias, hamburguerias estabelecidas',
     sweetSpot: 'Já tem salão e delivery, precisa profissionalizar a operação',
     color: 'bg-primary',
   },
   premium: {
     name: 'Premium',
-    price: 199.99,
+    price: 149.99,
     target: 'Redes, restaurantes médios/grandes, operações multi-unidade',
     sweetSpot: 'Faturamento >R$80k/mês, precisa de CRM, IA e API',
   },

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Store, Loader2, ArrowLeft, Mail, KeyRound, Sparkles, CheckCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -13,9 +13,27 @@ export default function RestaurantLogin() {
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<'login' | 'forgot'>('login');
   const [forgotSent, setForgotSent] = useState(false);
-  const { signIn, resetPassword } = useAuth();
+  const { user, roles, loading: authLoading, signIn, resetPassword } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      const hasRestaurant = roles.some((r) => r.restaurant_id);
+      if (hasRestaurant) {
+        const userRole = roles.find((r) => r.restaurant_id)?.role;
+        if (userRole === 'attendant') {
+          navigate('/garcom', { replace: true });
+        } else if (userRole === 'kitchen') {
+          navigate('/restaurant/kitchen', { replace: true });
+        } else {
+          navigate('/restaurant', { replace: true });
+        }
+      } else {
+        navigate('/restaurant', { replace: true });
+      }
+    }
+  }, [user, roles, authLoading, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

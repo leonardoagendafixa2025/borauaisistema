@@ -148,6 +148,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return promise;
   }, []);
 
+  const userRef = useRef<User | null>(user);
+  userRef.current = user;
+
   const syncSessionState = useCallback(async (nextSession: Session | null) => {
     setSession(nextSession);
     setUser(nextSession?.user ?? null);
@@ -169,8 +172,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (mounted) setLoading(false);
     };
 
-    const currentUserRef = { current: user };
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!mounted) return;
       if (signInInProgressRef.current) return;
@@ -179,7 +180,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(nextSession?.user ?? null);
         return;
       }
-      if (!currentUserRef.current) {
+      // Se o usuário já está autenticado com o mesmo ID, apenas atualiza sessão sem reiniciar loading de tela cheia
+      if (userRef.current && nextSession?.user && userRef.current.id === nextSession.user.id) {
+        setSession(nextSession);
+        setUser(nextSession.user);
+        return;
+      }
+      if (!userRef.current) {
         setLoading(true);
       }
       void initializeSession(nextSession);
@@ -193,6 +200,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [syncSessionState]);
 
+  // Persistir activeRestaurantId no localStorage automaticamente quando papéis forem carregados
+  useEffect(() => {
+    if (!loading && roles.length > 0) {
+      const match = roles.find(r => r.restaurant_id)?.restaurant_id;
+      if (match && !activeRestaurantId) {
+        setActiveRestaurantId(match);
+        try {
+          localStorage.setItem('borauai_active_restaurant_id', match);
+        } catch {}
+      }
+    }
+  }, [loading, roles, activeRestaurantId]);
+
   const signIn = async (email: string, password: string) => {
     signInInProgressRef.current = true;
     const { error, data } = await supabase.auth.signInWithPassword({ email, password });
@@ -200,6 +220,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(data.session);
       setUser(data.user);
       const userRoles = await fetchRoles(data.user.id, { force: true });
+      const matchedStoreId = activeRestaurantId || userRoles.find(r => r.restaurant_id)?.restaurant_id || null;
+      if (matchedStoreId) {
+        setActiveRestaurantId(matchedStoreId);
+        try {
+          localStorage.setItem('borauai_active_restaurant_id', matchedStoreId);
+        } catch {}
+      }
       setLoading(false);
       signInInProgressRef.current = false;
       return { error: null as Error | null, roles: userRoles };
@@ -230,12 +257,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {}
     setActiveRestaurantId(null);
     setAvailableStores([]);
+    clearRoles();
+    setSession(null);
+    setUser(null);
     await supabase.auth.signOut();
   };
 
   const isMasterAdmin = roles.some(r => ['super_admin', 'finance', 'support', 'commercial'].includes(r.role));
   const availableStoreIds = availableStores.map(s => s.id);
-  const effectiveRestaurantId = (activeRestaurantId && (availableStoreIds.includes(activeRestaurantId) || roles.some(r => r.restaurant_id === activeRestaurantId)))
+  const effectiveRestaurantId = (activeRestaurantId && (loading || availableStoreIds.includes(activeRestaurantId) || roles.some(r => r.restaurant_id === activeRestaurantId)))
     ? activeRestaurantId
     : (roles.find(r => r.restaurant_id)?.restaurant_id ?? null);
 

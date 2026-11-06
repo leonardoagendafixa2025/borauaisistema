@@ -124,9 +124,18 @@ export default function PublicMenu() {
     }
   }, [savedAddresses]);
 
-  // Auto-fill customer data from auth (name + phone from any prior customer record)
+  // Auto-fill customer data from auth (name + phone from prior customer record)
+  // or prefill from localStorage for returning guests
   useEffect(() => {
-    if (!customerUser) return;
+    if (!customerUser) {
+      try {
+        const savedPhone = localStorage.getItem('borauai_last_phone');
+        const savedName = localStorage.getItem('borauai_last_name');
+        if (savedPhone && !customerPhone) setCustomerPhone(savedPhone);
+        if (savedName && !customerName) setCustomerName(savedName);
+      } catch {}
+      return;
+    }
     if (!customerName) {
       setCustomerName(customerUser.user_metadata?.full_name || '');
     }
@@ -139,9 +148,9 @@ export default function PublicMenu() {
     }
   }, [customerUser]);
 
-  // Restore checkout draft after returning from login
+  // Restore checkout draft after returning from login (works for logged-in or guest users)
   useEffect(() => {
-    if (!restaurant || !customerUser) return;
+    if (!restaurant) return;
     const draftKey = `checkout_draft_${restaurant.id}`;
     const raw = sessionStorage.getItem(draftKey);
     if (!raw) return;
@@ -149,13 +158,18 @@ export default function PublicMenu() {
       const draft = JSON.parse(raw);
       if (draft.cart?.length) setCart(draft.cart);
       if (draft.orderType) setOrderType(draft.orderType);
+      if (draft.customerName) setCustomerName(draft.customerName);
+      if (draft.customerPhone) setCustomerPhone(draft.customerPhone);
       if (draft.address) setAddress(draft.address);
+      if (draft.selectedZoneId) setSelectedZoneId(draft.selectedZoneId);
       if (draft.paymentMethod) setPaymentMethod(draft.paymentMethod);
+      if (draft.needsChange) setNeedsChange(draft.needsChange);
+      if (draft.changeFor) setChangeFor(draft.changeFor);
       if (draft.notes) setNotes(draft.notes);
       sessionStorage.removeItem(draftKey);
       setCartOpen(true);
     } catch { /* ignore */ }
-  }, [restaurant, customerUser]);
+  }, [restaurant]);
 
   const deliveryEnabled = settings?.delivery_enabled ?? true;
   const pickupEnabled = settings?.pickup_enabled ?? true;
@@ -266,10 +280,24 @@ export default function PublicMenu() {
     toast.success(`${combo.name} adicionado`);
   };
 
+  const handlePhoneChange = (val: string) => {
+    const digits = val.replace(/\D/g, '').slice(0, 11);
+    if (digits.length <= 2) {
+      setCustomerPhone(digits ? `(${digits}` : '');
+    } else if (digits.length <= 6) {
+      setCustomerPhone(`(${digits.slice(0, 2)}) ${digits.slice(2)}`);
+    } else if (digits.length <= 10) {
+      setCustomerPhone(`(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`);
+    } else {
+      setCustomerPhone(`(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`);
+    }
+  };
+
   const canSubmit = () => {
     if (!effectiveOrderType) return false;
     if (!customerName.trim()) return false;
-    if (!customerPhone.trim()) return false;
+    const cleanPhone = customerPhone.replace(/\D/g, '');
+    if (cleanPhone.length < 10) return false;
     if (!paymentMethod) return false;
     if (paymentMethod === 'cash' && needsChange === null) return false;
     if (paymentMethod === 'cash' && needsChange === 'yes') {
@@ -282,10 +310,20 @@ export default function PublicMenu() {
     return true;
   };
 
-
   const saveDraftAndGoLogin = (mode: 'login' | 'register' = 'login') => {
     if (!restaurant) return;
-    const draft = { cart, orderType, address, paymentMethod, notes };
+    const draft = {
+      cart,
+      orderType,
+      customerName,
+      customerPhone,
+      address,
+      selectedZoneId,
+      paymentMethod,
+      needsChange,
+      changeFor,
+      notes,
+    };
     sessionStorage.setItem(`checkout_draft_${restaurant.id}`, JSON.stringify(draft));
     const returnTo = encodeURIComponent(`/${restaurant.slug}`);
     navigate(`/cliente/login?mode=${mode}&returnTo=${returnTo}`);
@@ -293,13 +331,6 @@ export default function PublicMenu() {
 
   const handleSubmitOrder = async () => {
     if (!restaurant) return;
-
-    // Require authentication so the order is linked to the customer's account
-    if (!customerUser) {
-      toast.info('Entre ou crie sua conta para finalizar o pedido');
-      saveDraftAndGoLogin('login');
-      return;
-    }
 
     // Rate limiting: max 5 orders per 10 minutes
     const RATE_KEY = `order_timestamps_${restaurant.id}`;
@@ -351,7 +382,8 @@ export default function PublicMenu() {
       }
     }
     if (!customerName.trim()) { toast.error('Informe seu nome'); return; }
-    if (!customerPhone.trim()) { toast.error('Informe seu telefone'); return; }
+    const phoneDigits = customerPhone.trim().replace(/\D/g, '');
+    if (phoneDigits.length < 10) { toast.error('Informe um WhatsApp válido com DDD (ex: 31 99999-9999)'); return; }
     if (!effectiveOrderType) { toast.error('Selecione o tipo de pedido'); return; }
     if (!paymentMethod) { toast.error('Selecione a forma de pagamento'); return; }
     let changeNote = '';
@@ -372,46 +404,69 @@ export default function PublicMenu() {
 
     setSubmitting(true);
     try {
-      // Auto-create/update customer record (linked to authenticated user)
+      // Auto-create/update customer record (linked to user if logged in, or guest record)
       let customerId: string | null = null;
       try {
-        const phone = customerPhone.trim().replace(/\D/g, '');
-        // Prefer existing record linked to this user for this restaurant
-        const { data: byUser } = await supabase
-          .from('customers')
-          .select('id')
-          .eq('restaurant_id', restaurant.id)
-          .eq('user_id', customerUser.id)
-          .maybeSingle();
-
-        if (byUser) {
-          customerId = byUser.id;
-          await supabase.from('customers').update({ name: customerName.trim(), phone, email: customerUser.email || null } as any).eq('id', byUser.id);
-        } else {
-          // Try to attach an existing phone-based customer to this user
-          const { data: byPhone } = await supabase
+        if (customerUser) {
+          // Prefer existing record linked to this user for this restaurant
+          const { data: byUser } = await supabase
             .from('customers')
-            .select('id, user_id')
+            .select('id')
             .eq('restaurant_id', restaurant.id)
-            .eq('phone', phone)
+            .eq('user_id', customerUser.id)
+            .maybeSingle();
+
+          if (byUser) {
+            customerId = byUser.id;
+            await supabase.from('customers').update({ name: customerName.trim(), phone: phoneDigits, email: customerUser.email || null } as any).eq('id', byUser.id);
+          } else {
+            // Try to attach an existing phone-based customer to this user
+            const { data: byPhone } = await supabase
+              .from('customers')
+              .select('id, user_id')
+              .eq('restaurant_id', restaurant.id)
+              .eq('phone', phoneDigits)
+              .maybeSingle();
+            if (byPhone) {
+              customerId = byPhone.id;
+              if (!byPhone.user_id) {
+                await supabase.from('customers').update({ user_id: customerUser.id, name: customerName.trim(), email: customerUser.email || null } as any).eq('id', byPhone.id);
+              }
+            } else {
+              const { data: newCustomer } = await supabase
+                .from('customers')
+                .insert({
+                  restaurant_id: restaurant.id,
+                  name: customerName.trim(),
+                  phone: phoneDigits,
+                  email: customerUser.email || null,
+                  user_id: customerUser.id,
+                })
+                .select('id')
+                .single();
+              if (newCustomer) customerId = newCustomer.id;
+            }
+          }
+        } else {
+          // Guest checkout: try to find customer by phone or create new record
+          const { data: byPhone } = await publicSupabase
+            .from('customers')
+            .select('id')
+            .eq('restaurant_id', restaurant.id)
+            .eq('phone', phoneDigits)
             .maybeSingle();
           if (byPhone) {
             customerId = byPhone.id;
-            if (!byPhone.user_id) {
-              await supabase.from('customers').update({ user_id: customerUser.id, name: customerName.trim(), email: customerUser.email || null } as any).eq('id', byPhone.id);
-            }
           } else {
-            const { data: newCustomer } = await supabase
+            const { data: newCustomer } = await publicSupabase
               .from('customers')
               .insert({
                 restaurant_id: restaurant.id,
                 name: customerName.trim(),
-                phone,
-                email: customerUser.email || null,
-                user_id: customerUser.id,
+                phone: phoneDigits,
               })
               .select('id')
-              .single();
+              .maybeSingle();
             if (newCustomer) customerId = newCustomer.id;
           }
         }
@@ -419,20 +474,23 @@ export default function PublicMenu() {
         console.warn('Customer link failed (non-blocking):', e);
       }
 
-      const { data: order, error: orderErr } = await supabase.from('orders').insert({
+      // Generate order ID upfront so anonymous insert does not require .select()
+      const orderId = crypto.randomUUID();
+      const { error: orderErr } = await publicSupabase.from('orders').insert({
+        id: orderId,
         restaurant_id: restaurant.id,
-        customer_name: customerName,
-        customer_phone: customerPhone,
+        customer_name: customerName.trim(),
+        customer_phone: customerPhone.trim(),
         customer_id: customerId,
         type: effectiveOrderType,
         subtotal: cartTotal,
         delivery_fee: deliveryFee,
         total: grandTotal,
-        address: effectiveOrderType === 'delivery' ? address : null,
+        address: effectiveOrderType === 'delivery' ? address.trim() : null,
         delivery_zone_id: selectedZoneId || null,
         payment_method: paymentMethod,
         notes: [changeNote, notes].filter(Boolean).join(' ').trim() || null,
-      } as any).select().single();
+      } as any);
       if (orderErr) throw orderErr;
 
       const items = cart.map(i => {
@@ -440,7 +498,7 @@ export default function PublicMenu() {
         const optsTotal = (i.options || []).reduce((s, o) => s + o.price, 0);
         const isCombo = !!i.combo;
         return {
-          order_id: order.id,
+          order_id: orderId,
           product_id: i.product?.id || null,
           name: isCombo ? `[Combo] ${i.combo!.name}` : i.product!.name,
           qty: i.qty,
@@ -450,25 +508,33 @@ export default function PublicMenu() {
           options: i.options && i.options.length > 0 ? i.options.map(o => ({ name: o.name, price: o.price })) : null,
         };
       });
-      const { error: itemsError } = await supabase.from('order_items').insert(items);
+      const { error: itemsError } = await publicSupabase.from('order_items').insert(items);
       if (itemsError) throw itemsError;
 
       // Dispara notificação push instantânea para garçom/cozinha do restaurante
       sendPushNewOrder(restaurant.id, {
-        order_id: order.id,
-        number: order.number,
-        customer_name: customerName,
+        order_id: orderId,
+        customer_name: customerName.trim(),
         type: effectiveOrderType,
         total: grandTotal,
       }).catch(() => {});
 
+      // Salva dados localmente para pré-preenchimento no próximo pedido
+      try {
+        localStorage.setItem('borauai_last_phone', customerPhone.trim());
+        localStorage.setItem('borauai_last_name', customerName.trim());
+        localStorage.setItem(`last_order_id_${restaurant.id}`, orderId);
+        localStorage.setItem('last_order_id', orderId);
+        if (restaurant.slug) localStorage.setItem('lastRestaurantSlug', restaurant.slug);
+      } catch {}
+
       // Record timestamp for rate limiting
       timestamps.push(now);
       sessionStorage.setItem(RATE_KEY, JSON.stringify(timestamps));
-      toast.success('Pedido enviado com sucesso!');
+      toast.success('Pedido enviado com sucesso! 🚀');
       setCart([]);
       setCartOpen(false);
-      navigate(`/pedido/${order.id}`);
+      navigate(`/pedido/${orderId}`);
     } catch (error) {
       console.error(error);
       toast.error('Erro ao enviar pedido');
@@ -1162,25 +1228,28 @@ export default function PublicMenu() {
             </div>
           )}
 
-          {/* Login gate banner (iFood-style) */}
+          {/* Login invitation banner (optional, non-blocking) */}
           {!customerUser && (
-            <div className="mt-4 rounded-2xl border border-primary/30 bg-primary/5 p-4">
+            <div className="mt-4 rounded-2xl border border-primary/20 bg-primary/5 p-3.5">
               <div className="flex items-start gap-3">
-                <div className="h-10 w-10 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
-                  <User className="h-5 w-5 text-primary" />
+                <div className="h-9 w-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                  <User className="h-4 w-4 text-primary" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold">Entre para finalizar o pedido</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Acompanhe o status, salve endereços e veja seu histórico em "Minha Conta".
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-foreground">Já tem uma conta cadastrada?</p>
+                    <span className="text-[10px] font-medium bg-muted px-2 py-0.5 rounded-full text-muted-foreground">Opcional</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    Entre para resgatar seus endereços salvos ou continue preenchendo abaixo sem cadastro.
                   </p>
-                  <div className="flex gap-2 mt-3">
+                  <div className="flex gap-2 mt-2">
                     <button onClick={() => saveDraftAndGoLogin('login')}
-                      className="flex-1 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 active:scale-[0.97] transition-all">
-                      Entrar
+                      className="rounded-lg bg-primary/10 hover:bg-primary/20 px-2.5 py-1 text-xs font-semibold text-primary transition-all">
+                      Entrar na conta
                     </button>
                     <button onClick={() => saveDraftAndGoLogin('register')}
-                      className="flex-1 rounded-lg border border-primary/40 bg-background px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/5 active:scale-[0.97] transition-all">
+                      className="rounded-lg border border-border hover:bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground transition-all">
                       Criar conta
                     </button>
                   </div>
@@ -1201,7 +1270,7 @@ export default function PublicMenu() {
             </div>
             <input type="text" placeholder="Seu nome *" value={customerName} onChange={e => setCustomerName(e.target.value)}
               className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm focus:ring-2 focus:ring-ring/20 focus:border-primary outline-none transition-all" />
-            <input type="tel" placeholder="Telefone com DDD *" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)}
+            <input type="tel" placeholder="WhatsApp / Telefone com DDD *" value={customerPhone} onChange={e => handlePhoneChange(e.target.value)} maxLength={15}
               className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm focus:ring-2 focus:ring-ring/20 focus:border-primary outline-none transition-all" />
             {effectiveOrderType === 'delivery' && zones.length > 0 && (
               <div>
@@ -1357,13 +1426,11 @@ export default function PublicMenu() {
             </div>
           </div>
 
-          <button onClick={handleSubmitOrder} disabled={submitting || (!!customerUser && !canSubmit())}
+          <button onClick={handleSubmitOrder} disabled={submitting || !canSubmit()}
             className="w-full mt-5 rounded-xl bg-primary px-4 py-3.5 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 hover:bg-primary/90 active:scale-[0.97] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
             {submitting
               ? 'Enviando...'
-              : !customerUser
-                ? 'Entrar e finalizar pedido'
-                : effectiveOrderType === 'pickup' ? 'Confirmar Retirada' : 'Confirmar Pedido'}
+              : effectiveOrderType === 'pickup' ? 'Confirmar Retirada' : 'Confirmar Pedido'}
             <ChevronRight className="h-4 w-4" />
           </button>
         </SheetContent>

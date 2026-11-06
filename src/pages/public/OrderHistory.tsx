@@ -22,18 +22,56 @@ const typeIcons: Record<string, typeof Truck> = {
   dine_in: UtensilsCrossed,
 };
 
+const formatPhone = (val: string) => {
+  const raw = val.replace(/\D/g, '').slice(0, 11);
+  if (raw.length <= 2) return raw;
+  if (raw.length <= 7) return `(${raw.slice(0, 2)}) ${raw.slice(2)}`;
+  if (raw.length <= 10) return `(${raw.slice(0, 2)}) ${raw.slice(2, 6)}-${raw.slice(6)}`;
+  return `(${raw.slice(0, 2)}) ${raw.slice(2, 7)}-${raw.slice(7, 11)}`;
+};
+
 export default function OrderHistory() {
   const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
   const stateSlug = (location.state as any)?.fromSlug as string | undefined;
+  const paramSlug = searchParams.get('slug') || undefined;
+
   const [fromSlug, setFromSlug] = useState<string | undefined>(() => {
-    return stateSlug || sessionStorage.getItem('lastRestaurantSlug') || undefined;
+    return stateSlug || paramSlug || sessionStorage.getItem('lastRestaurantSlug') || localStorage.getItem('borauai_last_slug') || undefined;
   });
+
+  const [lastOrderId] = useState<string | null>(() => {
+    return localStorage.getItem('borauai_last_order_id') || null;
+  });
+  const [lastOrderDetails, setLastOrderDetails] = useState<any | null>(null);
+
   useEffect(() => {
-    if (stateSlug) {
-      sessionStorage.setItem('lastRestaurantSlug', stateSlug);
-      setFromSlug(stateSlug);
+    const slug = stateSlug || paramSlug;
+    if (slug) {
+      sessionStorage.setItem('lastRestaurantSlug', slug);
+      setFromSlug(slug);
     }
-  }, [stateSlug]);
+  }, [stateSlug, paramSlug]);
+
+  useEffect(() => {
+    const savedPhone = localStorage.getItem('borauai_last_phone');
+    if (savedPhone) {
+      setPhone(formatPhone(savedPhone));
+    }
+
+    if (lastOrderId) {
+      (publicSupabase as any)
+        .rpc('get_order_for_tracking', { _order_id: lastOrderId })
+        .then(({ data }: any) => {
+          const orderData = Array.isArray(data) ? data[0] : data;
+          if (orderData && orderData.id) {
+            setLastOrderDetails(orderData);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [lastOrderId]);
+
   const backUrl = fromSlug ? `/${fromSlug}` : '/';
 
   const [phone, setPhone] = useState('');
@@ -48,29 +86,28 @@ export default function OrderHistory() {
     setSearched(true);
 
     if (searchMode === 'number') {
-      // Busca por número exige conhecer o restaurante. Mantemos para clientes
-      // logados (área autenticada do cliente) — busca todos os pedidos do user.
       const num = parseInt(orderNumber.replace(/\D/g, ''), 10);
       if (isNaN(num)) { setOrders([]); setLoading(false); return; }
       const { data: { user } } = await publicSupabase.auth.getUser();
-      if (!user) {
-        setOrders([]);
-        setLoading(false);
-        return;
+      if (user) {
+        const { data } = await publicSupabase
+          .from('orders')
+          .select('*, order_items(*), restaurants(name, slug, logo_url)')
+          .eq('number', num)
+          .order('created_at', { ascending: false })
+          .limit(10);
+        setOrders(data || []);
+      } else {
+        if (lastOrderDetails && Number(lastOrderDetails.number) === num) {
+          setOrders([lastOrderDetails]);
+        } else {
+          setOrders([]);
+        }
       }
-      const { data } = await publicSupabase
-        .from('orders')
-        .select('*, order_items(*), restaurants(name, slug, logo_url)')
-        .eq('number', num)
-        .order('created_at', { ascending: false })
-        .limit(10);
-      setOrders(data || []);
     } else {
       const cleaned = phone.replace(/\D/g, '');
       if (cleaned.length < 8) { setOrders([]); setLoading(false); return; }
 
-      // Para busca anônima por telefone, usa RPC. Mas RPC exige restaurant_id.
-      // Se cliente está logado, lê pedidos vinculados ao customer_id (RLS permite).
       const { data: { user } } = await publicSupabase.auth.getUser();
       if (user) {
         const { data } = await publicSupabase
@@ -80,8 +117,48 @@ export default function OrderHistory() {
           .limit(50);
         setOrders(data || []);
       } else {
-        // Anônimo: orienta a usar o link direto do pedido (mais seguro)
-        setOrders([]);
+        const candidateSlug =
+          fromSlug ||
+          searchParams.get('slug') ||
+          sessionStorage.getItem('lastRestaurantSlug') ||
+          localStorage.getItem('borauai_last_slug');
+
+        let restId = localStorage.getItem('borauai_last_restaurant_id');
+        let restInfo: any = null;
+
+        if (candidateSlug) {
+          const { data: rest } = await publicSupabase
+            .from('restaurants')
+            .select('id, name, slug, logo_url')
+            .eq('slug', candidateSlug)
+            .maybeSingle();
+          if (rest) {
+            restId = rest.id;
+            restInfo = rest;
+          }
+        }
+
+        if (restId) {
+          const { data: phoneOrders } = await (publicSupabase as any).rpc('find_orders_by_phone', {
+            _restaurant_id: restId,
+            _phone: cleaned,
+          });
+
+          if (phoneOrders && phoneOrders.length > 0) {
+            setOrders(phoneOrders.map((o: any) => ({
+              ...o,
+              restaurants: restInfo || (fromSlug ? { name: fromSlug, slug: fromSlug } : undefined),
+            })));
+          } else if (lastOrderDetails && lastOrderDetails.customer_phone?.replace(/\D/g, '') === cleaned) {
+            setOrders([lastOrderDetails]);
+          } else {
+            setOrders([]);
+          }
+        } else if (lastOrderDetails && lastOrderDetails.customer_phone?.replace(/\D/g, '') === cleaned) {
+          setOrders([lastOrderDetails]);
+        } else {
+          setOrders([]);
+        }
       }
     }
     setLoading(false);
@@ -117,10 +194,33 @@ export default function OrderHistory() {
       </header>
 
       <div className="max-w-lg mx-auto px-4 py-6">
+        {/* Quick link to recent order on this device */}
+        {lastOrderDetails && (
+          <div className="card-premium p-4 mb-5 bg-primary/5 border border-primary/20 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="h-10 w-10 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
+                <Clock className="h-5 w-5 text-primary" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-foreground">Pedido recente neste aparelho</p>
+                <p className="text-xs text-muted-foreground truncate">
+                  Pedido #{lastOrderDetails.number} · {statusLabels[lastOrderDetails.status]?.label || lastOrderDetails.status}
+                </p>
+              </div>
+            </div>
+            <Link
+              to={`/pedido/${lastOrderDetails.id}`}
+              className="rounded-xl bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 shrink-0 transition-all active:scale-95"
+            >
+              Acompanhar
+            </Link>
+          </div>
+        )}
+
         {/* Hero card with search */}
         <div className="card-premium p-5 mb-6 bg-gradient-to-br from-card to-primary/5">
           <h2 className="font-bold text-base mb-1">Buscar meus pedidos</h2>
-          <p className="text-xs text-muted-foreground mb-4">Encontre pelo telefone usado ou nº do pedido</p>
+          <p className="text-xs text-muted-foreground mb-4">Encontre pelo WhatsApp cadastrado ou nº do pedido</p>
 
           <div className="flex gap-1.5 mb-3 p-1 bg-muted/60 rounded-full">
             <button onClick={() => setSearchMode('phone')}
@@ -139,8 +239,9 @@ export default function OrderHistory() {
                 type="tel"
                 placeholder="(31) 99999-9999"
                 value={phone}
-                onChange={e => setPhone(e.target.value)}
+                onChange={e => setPhone(formatPhone(e.target.value))}
                 onKeyDown={e => e.key === 'Enter' && handleSearch()}
+                maxLength={15}
                 className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm focus:ring-2 focus:ring-primary/30 focus:border-primary outline-none transition-all"
               />
             ) : (
@@ -171,13 +272,15 @@ export default function OrderHistory() {
         )}
 
         {searched && !loading && orders.length === 0 && (
-          <div className="text-center py-16 card-premium">
+          <div className="text-center py-12 card-premium">
             <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mx-auto mb-4">
               <Package className="h-8 w-8 text-muted-foreground/60" />
             </div>
-            <p className="font-bold text-base">Nenhum pedido encontrado</p>
-            <p className="text-sm text-muted-foreground mt-1 px-6">
-              Verifique o {searchMode === 'phone' ? 'telefone' : 'número'} informado e tente novamente
+            <p className="font-bold text-base">Nenhum pedido recente encontrado</p>
+            <p className="text-sm text-muted-foreground mt-1 px-6 max-w-sm mx-auto">
+              {searchMode === 'phone'
+                ? 'Verifique o DDD e os números informados. Pedidos anônimos ficam disponíveis por até 7 dias.'
+                : 'Não encontramos pedidos com este número para o seu login.'}
             </p>
             {fromSlug && (
               <Link to={backUrl} className="inline-flex items-center gap-1.5 mt-5 text-sm font-semibold text-primary hover:underline">

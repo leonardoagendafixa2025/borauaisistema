@@ -14,7 +14,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import SplitBillDialog from '@/components/SplitBillDialog';
 import ManualOrderDialog from '@/components/ManualOrderDialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Plus, Truck, Bike } from 'lucide-react';
+import { Plus, Truck, Bike, CheckCircle2 } from 'lucide-react';
 
 type OrderStatus = Database['public']['Enums']['order_status'];
 
@@ -54,13 +54,14 @@ const tabs: { key: string; label: string }[] = [
   { key: 'all', label: 'Todos' },
 ];
 
-function OrderDetailPanel({ order, updateStatus, setPrintOrder, restaurant, onSplitBill, onDispatch, updatingId }: {
+function OrderDetailPanel({ order, updateStatus, setPrintOrder, restaurant, onSplitBill, onDispatch, onDeliveryOverride, updatingId }: {
   order: any;
   updateStatus: (id: string, status: OrderStatus) => void;
   setPrintOrder: (o: any) => void;
   restaurant: any;
   onSplitBill: (o: any) => void;
   onDispatch: (o: any) => void;
+  onDeliveryOverride?: (o: any) => void;
   updatingId?: string | null;
 }) {
   const s = statusConfig[order.status] || statusConfig.new;
@@ -122,22 +123,44 @@ function OrderDetailPanel({ order, updateStatus, setPrintOrder, restaurant, onSp
         <div className="flex flex-col gap-2 pt-2">
           {/* Delivery: o botão de enviar ao entregador SÓ aparece após a cozinha marcar como Pronto */}
           {order.type === 'delivery' && order.status === 'ready' && (
-            <button
-              onClick={() => onDispatch(order)}
-              className="w-full rounded-lg bg-accent px-3 py-2.5 text-sm font-semibold text-accent-foreground hover:bg-accent/80 active:scale-[0.97] transition-all flex items-center justify-center gap-2"
-            >
-              <Bike className="h-4 w-4" />
-              {order.driver_id ? 'Trocar entregador' : 'Enviar para entregador'}
-            </button>
+            <div className="space-y-1.5">
+              <button
+                onClick={() => onDispatch(order)}
+                className="w-full rounded-lg bg-accent px-3 py-2.5 text-sm font-semibold text-accent-foreground hover:bg-accent/80 active:scale-[0.97] transition-all flex items-center justify-center gap-2"
+              >
+                <Bike className="h-4 w-4" />
+                {order.driver_id ? 'Trocar entregador' : 'Enviar para entregador'}
+              </button>
+              <button
+                type="button"
+                onClick={() => updateStatus(order.id, 'delivering')}
+                disabled={isUpdating}
+                className="w-full rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted active:scale-[0.98] transition-all flex items-center justify-center gap-1.5"
+              >
+                <Truck className="h-3.5 w-3.5" />
+                Despachar com motoboy externo / próprio
+              </button>
+            </div>
           )}
           {order.type === 'delivery' && ['new', 'accepted', 'preparing'].includes(order.status) && (
             <div className="w-full rounded-lg bg-muted/50 text-muted-foreground px-3 py-2 text-xs text-center">
               🍳 Conclua o preparo para liberar o envio ao entregador
             </div>
           )}
-          {order.type === 'delivery' && order.status === 'delivering' && order.driver_id && (
-            <div className="w-full rounded-lg bg-success/10 text-success px-3 py-2 text-xs font-medium text-center">
-              🛵 Em rota com entregador
+          {order.type === 'delivery' && order.status === 'delivering' && (
+            <div className="space-y-2">
+              <div className="w-full rounded-lg bg-accent/10 text-accent px-3 py-2 text-xs font-medium text-center">
+                🛵 Em rota {order.driver_id ? 'com entregador vinculado' : 'de entrega'}
+              </div>
+              <button
+                type="button"
+                onClick={() => onDeliveryOverride ? onDeliveryOverride(order) : updateStatus(order.id, 'completed')}
+                disabled={isUpdating}
+                className="w-full rounded-lg border border-accent/40 bg-accent/5 px-3 py-2 text-xs font-semibold text-accent hover:bg-accent/15 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Concluir Entrega Manualmente
+              </button>
             </div>
           )}
           <div className="flex gap-2">
@@ -264,6 +287,28 @@ export default function OrdersPage() {
   };
 
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [deliveryOverrideOrder, setDeliveryOverrideOrder] = useState<any | null>(null);
+
+  const confirmDeliveryOverride = async (orderId: string) => {
+    try {
+      setUpdatingId(orderId);
+      const { error } = await supabase.from('orders').update({ status: 'completed' }).eq('id', orderId);
+      if (error) {
+        console.error('Erro ao atualizar pedido:', error);
+        toast.error('Falha ao concluir pedido. Verifique sua conexão.');
+        return;
+      }
+      toast.success('Pedido delivery concluído com sucesso!');
+      queryClient.invalidateQueries({ queryKey: ['orders', restaurantId] });
+      queryClient.invalidateQueries({ queryKey: ['inventory', restaurantId] });
+      setDeliveryOverrideOrder(null);
+    } catch (err) {
+      console.error('Erro inesperado:', err);
+      toast.error('Erro ao atualizar status do pedido.');
+    } finally {
+      setUpdatingId(null);
+    }
+  };
 
   const updateStatus = async (orderId: string, newStatus: OrderStatus) => {
     if (updatingId === orderId) return;
@@ -278,9 +323,9 @@ export default function OrdersPage() {
     if (finalStatus === 'ready' && order) {
       if (order.type === 'pickup') finalStatus = 'waiting_pickup';
     }
-    // Delivery is only completed by the driver app after handoff
+    // Delivery manual override check
     if (order && order.type === 'delivery' && finalStatus === 'completed') {
-      toast.error('Delivery só é concluído pelo app do entregador.');
+      setDeliveryOverrideOrder(order);
       return;
     }
     try {
@@ -484,6 +529,7 @@ export default function OrdersPage() {
                     restaurant={restaurant}
                     onSplitBill={setSplitOrder}
                     onDispatch={setDispatchOrder}
+                    onDeliveryOverride={setDeliveryOverrideOrder}
                     updatingId={updatingId}
                   />
                 </div>
@@ -509,6 +555,7 @@ export default function OrdersPage() {
                   restaurant={restaurant}
                   onSplitBill={setSplitOrder}
                   onDispatch={setDispatchOrder}
+                  onDeliveryOverride={setDeliveryOverrideOrder}
                   updatingId={updatingId}
                 />
               )}
@@ -588,6 +635,47 @@ export default function OrdersPage() {
                   </button>
                 );
               })}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Manual Delivery Override Confirmation Dialog */}
+        <Dialog open={!!deliveryOverrideOrder} onOpenChange={(open) => { if (!open) setDeliveryOverrideOrder(null); }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-foreground">
+                <Truck className="h-5 w-5 text-accent" />
+                Concluir Delivery Manualmente
+              </DialogTitle>
+              <DialogDescription className="text-sm pt-2">
+                Você está finalizando o pedido <strong>#{deliveryOverrideOrder?.number}</strong> de <strong>{deliveryOverrideOrder?.customer_name}</strong>.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 text-xs text-amber-800 dark:text-amber-300 space-y-1.5">
+              <p className="font-semibold flex items-center gap-1">⚠️ Confirmação do Gerente</p>
+              <p>
+                Geralmente pedidos de entrega são finalizados automaticamente pelo entregador no aplicativo ao chegar ao endereço.
+              </p>
+              <p>
+                Confirme caso o pedido tenha sido entregue por motoboy externo (Uber Flash, 99, próprio sem app) ou caso o entregador esteja sem conexão ou bateria.
+              </p>
+            </div>
+            <div className="flex gap-2 justify-end pt-3">
+              <button
+                type="button"
+                onClick={() => setDeliveryOverrideOrder(null)}
+                className="rounded-lg border border-border px-4 py-2 text-xs font-semibold hover:bg-muted transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => deliveryOverrideOrder && confirmDeliveryOverride(deliveryOverrideOrder.id)}
+                disabled={updatingId === deliveryOverrideOrder?.id}
+                className="rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-accent-foreground hover:bg-accent/90 active:scale-[0.98] transition-all disabled:opacity-50"
+              >
+                {updatingId === deliveryOverrideOrder?.id ? 'Concluindo...' : 'Confirmar Conclusão'}
+              </button>
             </div>
           </DialogContent>
         </Dialog>

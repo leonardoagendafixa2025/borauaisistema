@@ -168,6 +168,7 @@ export default function TablesPage() {
     openOrdersCount: number;
   } | null>(null);
   const [settlementMethod, setSettlementMethod] = useState<'pix' | 'cash' | 'credit_card' | 'debit_card'>('pix');
+  const [settlementCashGiven, setSettlementCashGiven] = useState('');
   const [submittingSettlement, setSubmittingSettlement] = useState(false);
 
   const executeAtomicClose = async (
@@ -701,6 +702,65 @@ export default function TablesPage() {
                   ))}
                 </div>
               </div>
+
+              {settlementMethod === 'cash' && settlementModal && (
+                <div className="rounded-xl border border-warning/30 bg-warning/5 p-3 space-y-2">
+                  {(() => {
+                    const cashNum = parseFloat(settlementCashGiven.replace(/\./g, '').replace(',', '.')) || 0;
+                    const remaining = settlementModal.remaining;
+                    const change = cashNum > remaining ? cashNum - remaining : 0;
+                    const isShort = cashNum > 0 && cashNum < remaining;
+                    return (
+                      <>
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-foreground">
+                            💵 Cálculo de Troco
+                          </label>
+                          {cashNum >= remaining && cashNum > 0 && (
+                            <span className="text-xs font-black text-success">
+                              Troco: {formatCurrency(change)}
+                            </span>
+                          )}
+                          {isShort && (
+                            <span className="text-xs font-bold text-destructive">
+                              Falta: {formatCurrency(remaining - cashNum)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex gap-1.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => setSettlementCashGiven(remaining.toFixed(2))}
+                            className="px-2.5 py-1 text-xs rounded-lg border border-border bg-background hover:bg-muted font-medium transition-all active:scale-95"
+                          >
+                            Exato ({formatCurrency(remaining)})
+                          </button>
+                          {[20, 50, 100, 200]
+                            .filter(val => val >= remaining)
+                            .map(val => (
+                              <button
+                                key={val}
+                                type="button"
+                                onClick={() => setSettlementCashGiven(val.toFixed(2))}
+                                className="px-2.5 py-1 text-xs rounded-lg border border-border bg-background hover:bg-muted font-medium transition-all active:scale-95"
+                              >
+                                R$ {val}
+                              </button>
+                            ))}
+                        </div>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="Valor entregue em dinheiro (R$)"
+                          value={settlementCashGiven}
+                          onChange={(e) => setSettlementCashGiven(e.target.value)}
+                          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+                        />
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
 
               <div className="flex flex-col gap-2 pt-2">
                 <button

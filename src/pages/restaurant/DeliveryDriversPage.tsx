@@ -76,8 +76,23 @@ export default function DeliveryDriversPage() {
         .select('*')
         .eq('restaurant_id', restaurantId)
         .order('created_at', { ascending: false });
-      if (error) throw error;
-      return data;
+
+      if (error) {
+        // Fallback para permissões restritas de coluna no PostgreSQL
+        console.warn('[DeliveryDriversPage] Tentando fallback de colunas:', error.message);
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('delivery_drivers')
+          .select('id, restaurant_id, name, phone, vehicle, status, last_lat, last_lng, last_location_at, created_at, updated_at')
+          .eq('restaurant_id', restaurantId)
+          .order('created_at', { ascending: false });
+
+        if (fallbackError) {
+          console.error('[DeliveryDriversPage] Erro ao carregar entregadores:', fallbackError);
+          throw fallbackError;
+        }
+        return (fallbackData || []) as any[];
+      }
+      return data || [];
     },
     enabled: !!restaurantId,
   });
@@ -134,9 +149,29 @@ export default function DeliveryDriversPage() {
     setDialogOpen(true);
   };
 
+  const generateMissingPin = async (driverId: string) => {
+    if (!restaurantId) return;
+    let pin = '';
+    try {
+      const { data: rpcPin } = await supabase.rpc('generate_driver_pin', { _restaurant_id: restaurantId });
+      if (rpcPin) pin = rpcPin;
+    } catch (_) {}
+    if (!pin) {
+      pin = Math.floor(100000 + Math.random() * 900000).toString();
+    }
+    const { error } = await supabase.from('delivery_drivers').update({ access_pin: pin }).eq('id', driverId);
+    if (error) {
+      toast.error('Erro ao gerar PIN: ' + error.message);
+      return;
+    }
+    toast.success(`PIN ${pin} gerado com sucesso!`);
+    queryClient.invalidateQueries({ queryKey: ['delivery_drivers'] });
+    queryClient.invalidateQueries({ queryKey: ['delivery_drivers', restaurantId] });
+  };
+
   const handleSave = async () => {
     if (!form.name.trim()) { toast.error('Nome é obrigatório'); return; }
-    if (!restaurantId) return;
+    if (!restaurantId) { toast.error('Restaurante não identificado'); return; }
 
     if (editingId) {
       const { error } = await supabase.from('delivery_drivers').update({
@@ -144,33 +179,55 @@ export default function DeliveryDriversPage() {
         phone: form.phone.trim() || null,
         vehicle: form.vehicle,
       }).eq('id', editingId);
-      if (error) { toast.error('Erro ao atualizar'); return; }
+      if (error) { toast.error('Erro ao atualizar: ' + error.message); return; }
       toast.success('Entregador atualizado');
     } else {
+      // Gera PIN para o entregador acessar o app /entregador
+      let pin = '';
+      try {
+        const { data: rpcPin } = await supabase.rpc('generate_driver_pin', { _restaurant_id: restaurantId });
+        if (rpcPin) pin = rpcPin;
+      } catch (_) {}
+      if (!pin) {
+        pin = Math.floor(100000 + Math.random() * 900000).toString();
+      }
+
       const { error } = await supabase.from('delivery_drivers').insert({
         restaurant_id: restaurantId,
         name: form.name.trim(),
         phone: form.phone.trim() || null,
         vehicle: form.vehicle,
+        access_pin: pin,
       });
-      if (error) { toast.error('Erro ao cadastrar'); return; }
-      toast.success('Entregador cadastrado');
+      if (error) { toast.error('Erro ao cadastrar: ' + error.message); return; }
+      toast.success('Entregador cadastrado com sucesso!');
     }
     queryClient.invalidateQueries({ queryKey: ['delivery_drivers'] });
+    queryClient.invalidateQueries({ queryKey: ['delivery_drivers', restaurantId] });
     setDialogOpen(false);
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm('Remover este entregador?')) return;
-    await supabase.from('delivery_drivers').delete().eq('id', id);
+    const { error } = await supabase.from('delivery_drivers').delete().eq('id', id);
+    if (error) {
+      toast.error('Erro ao remover entregador: ' + error.message);
+      return;
+    }
     queryClient.invalidateQueries({ queryKey: ['delivery_drivers'] });
+    queryClient.invalidateQueries({ queryKey: ['delivery_drivers', restaurantId] });
     toast.success('Entregador removido');
   };
 
   const toggleStatus = async (id: string, current: string) => {
     const next = current === 'available' ? 'offline' : 'available';
-    await supabase.from('delivery_drivers').update({ status: next }).eq('id', id);
+    const { error } = await supabase.from('delivery_drivers').update({ status: next }).eq('id', id);
+    if (error) {
+      toast.error('Erro ao alterar status: ' + error.message);
+      return;
+    }
     queryClient.invalidateQueries({ queryKey: ['delivery_drivers'] });
+    queryClient.invalidateQueries({ queryKey: ['delivery_drivers', restaurantId] });
   };
 
   const available = drivers.filter((d: any) => d.status === 'available').length;
@@ -308,12 +365,24 @@ export default function DeliveryDriversPage() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <button onClick={copyPin}
-                              className="font-mono text-sm bg-muted hover:bg-muted/70 px-2 py-1 rounded inline-flex items-center gap-1.5 transition-colors"
-                              title="Copiar PIN">
-                              {driver.access_pin || '—'}
-                              <Copy className="h-3 w-3 text-muted-foreground" />
-                            </button>
+                            {driver.access_pin ? (
+                              <button onClick={copyPin}
+                                className="font-mono text-sm bg-muted hover:bg-muted/70 px-2 py-1 rounded inline-flex items-center gap-1.5 transition-colors"
+                                title="Copiar PIN">
+                                {driver.access_pin}
+                                <Copy className="h-3 w-3 text-muted-foreground" />
+                              </button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs gap-1"
+                                onClick={() => generateMissingPin(driver.id)}
+                                title="Gerar código PIN para este entregador"
+                              >
+                                <KeyRound className="h-3 w-3" /> Gerar PIN
+                              </Button>
+                            )}
                           </TableCell>
                           <TableCell>{activeDeliveries[driver.id] || 0}</TableCell>
                           <TableCell>

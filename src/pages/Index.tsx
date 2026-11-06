@@ -17,17 +17,17 @@ import sertanejoShow from '@/assets/sertanejo-show.jpg';
 
 const FALLBACK_PLANS = [
   {
-    id: 'fallback-basic', name: 'Básico', tier: 'basic', price: 69.99, active: true,
+    id: 'fallback-basic', name: 'Básico', tier: 'basic', price: 49.99, active: true,
     description: 'Para começar com tudo o que importa.',
     features: ['Cardápio digital com QR Code', 'Pedidos por mesa', 'Painel da cozinha (KDS)', 'Comandas individuais', 'Relatórios básicos', 'Suporte por e-mail'],
   },
   {
-    id: 'fallback-pro', name: 'Profissional', tier: 'pro', price: 119.99, active: true,
+    id: 'fallback-pro', name: 'Profissional', tier: 'pro', price: 89.99, active: true,
     description: 'Para bares e restaurantes em crescimento.',
     features: ['Tudo do Básico', 'Delivery + retirada', 'Controle de estoque', 'CRM de clientes', 'Notificações WhatsApp', 'Multi-usuários', 'Relatórios avançados'],
   },
   {
-    id: 'fallback-premium', name: 'Premium', tier: 'premium', price: 199.99, active: true,
+    id: 'fallback-premium', name: 'Premium', tier: 'premium', price: 149.99, active: true,
     description: 'Para casas noturnas e operações completas.',
     features: ['Tudo do Profissional', 'Modo Balada (line-up, DJ)', 'Pulseiras cashless', 'Pedidos de música', 'Integração Telegram', 'Bot inteligente', 'Suporte prioritário 24/7'],
   },

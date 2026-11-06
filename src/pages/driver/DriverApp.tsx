@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Truck, MapPin, LogOut, Phone, CheckCircle2, Navigation, AlertTriangle, Power, History, DollarSign, Package } from 'lucide-react';
+import { Truck, MapPin, LogOut, Phone, CheckCircle2, Navigation, AlertTriangle, Power, History, DollarSign, Package, Banknote, CreditCard } from 'lucide-react';
 
 interface DriverSession {
   driver_id: string;
@@ -77,6 +78,9 @@ export default function DriverApp() {
   const audioUnlockedRef = useRef<boolean>(false);
   const [newOrderFlash, setNewOrderFlash] = useState(false);
   const [audioBlocked, setAudioBlocked] = useState(false);
+  const [confirmDeliverOrder, setConfirmDeliverOrder] = useState<AssignedOrder | null>(null);
+  const [completingDelivery, setCompletingDelivery] = useState(false);
+  const completingRef = useRef(false);
 
   // Restaura sessão do entregador do localStorage (se F5 / reabrir o app)
   useEffect(() => {
@@ -310,7 +314,7 @@ export default function DriverApp() {
   }, [session]);
 
   // Heartbeat sender (sends GPS + status to server)
-  const sendHeartbeat = async (lat: number, lng: number, status?: string) => {
+  const sendHeartbeat = async (lat: number | null, lng: number | null, status?: string) => {
     if (!session) return;
     await supabase.rpc('driver_heartbeat', {
       _driver_id: session.driver_id, _pin: session.pin,
@@ -322,30 +326,39 @@ export default function DriverApp() {
   const startGpsWatch = () => {
     if (!('geolocation' in navigator)) {
       setGpsError('Seu dispositivo não suporta GPS');
-      return false;
+      toast.info('Modo sem GPS ativo: você continuará recebendo pedidos normalmente.');
+      return true;
     }
     setGpsError(null);
     if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      (pos) => {
-        const { latitude, longitude } = pos.coords;
-        setLastPosition({ lat: latitude, lng: longitude });
-      },
-      (err) => {
-        setGpsError(err.message);
-        toast.error('GPS bloqueado: ' + err.message);
-      },
-      { enableHighAccuracy: true, maximumAge: 20000, timeout: 20000 }
-    );
+    try {
+      watchIdRef.current = navigator.geolocation.watchPosition(
+        (pos) => {
+          const { latitude, longitude } = pos.coords;
+          setLastPosition({ lat: latitude, lng: longitude });
+          setGpsError(null);
+        },
+        (err) => {
+          setGpsError('Sinal de GPS fraco ou não autorizado');
+          console.warn('GPS watch error:', err.message);
+        },
+        { enableHighAccuracy: true, maximumAge: 20000, timeout: 20000 }
+      );
+    } catch {
+      setGpsError('Erro ao iniciar GPS');
+    }
     return true;
   };
 
   const goOnline = () => {
-    if (!startGpsWatch()) return;
+    startGpsWatch();
     setOnline(true);
     localStorage.setItem('driver_online', '1');
-    toast.success('Você está online. Seu GPS está sendo compartilhado.');
-    if (session) loadOrders(session);
+    toast.success('Você está online para entregas! 🛵');
+    if (session) {
+      sendHeartbeat(lastPosition?.lat ?? null, lastPosition?.lng ?? null, 'available');
+      loadOrders(session);
+    }
   };
 
   const goOffline = async () => {
@@ -355,11 +368,8 @@ export default function DriverApp() {
     heartbeatRef.current = null;
     setOnline(false);
     localStorage.setItem('driver_online', '0');
-    if (session && lastPosition) {
-      await supabase.rpc('driver_heartbeat', {
-        _driver_id: session.driver_id, _pin: session.pin,
-        _lat: lastPosition.lat, _lng: lastPosition.lng, _status: 'offline',
-      });
+    if (session) {
+      await sendHeartbeat(lastPosition?.lat ?? null, lastPosition?.lng ?? null, 'offline');
     }
     toast('Você está offline');
   };
@@ -373,20 +383,15 @@ export default function DriverApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
-  // Heartbeat loop
+  // Heartbeat loop: envia sempre a cada minuto para manter o status online no painel do restaurante
   useEffect(() => {
     if (!online || !session) return;
-    heartbeatRef.current = window.setInterval(() => {
-      if (lastPosition) {
-        const status = orders.some(o => o.status === 'delivering') ? 'busy' : 'available';
-        sendHeartbeat(lastPosition.lat, lastPosition.lng, status);
-      }
-    }, HEARTBEAT_MS);
-    // Imediatamente
-    if (lastPosition) {
+    const sendNow = () => {
       const status = orders.some(o => o.status === 'delivering') ? 'busy' : 'available';
-      sendHeartbeat(lastPosition.lat, lastPosition.lng, status);
-    }
+      sendHeartbeat(lastPosition?.lat ?? null, lastPosition?.lng ?? null, status);
+    };
+    heartbeatRef.current = window.setInterval(sendNow, HEARTBEAT_MS);
+    sendNow();
     return () => { if (heartbeatRef.current) clearInterval(heartbeatRef.current); };
   }, [online, lastPosition, session, orders]);
 
@@ -396,15 +401,28 @@ export default function DriverApp() {
   }, []);
 
   const markDelivered = async (orderId: string) => {
-    if (!session) return;
-    if (!confirm('Confirmar entrega deste pedido?')) return;
-    const { data, error } = await supabase.rpc('driver_mark_delivered', {
-      _driver_id: session.driver_id, _pin: session.pin, _order_id: orderId,
-    });
-    if (error || !data) { toast.error('Erro ao concluir entrega'); return; }
-    toast.success('Entrega concluída! 🎉');
-    loadOrders(session);
-    loadHistoryAndEarnings(session);
+    if (!session || completingRef.current) return;
+    completingRef.current = true;
+    setCompletingDelivery(true);
+    try {
+      const { data, error } = await supabase.rpc('driver_mark_delivered', {
+        _driver_id: session.driver_id, _pin: session.pin, _order_id: orderId,
+      });
+      if (error || !data) {
+        toast.error('Erro ao concluir entrega');
+        return;
+      }
+      try { navigator.vibrate?.([50, 40, 100]); } catch {}
+      toast.success('Entrega concluída com sucesso! 🎉');
+      setConfirmDeliverOrder(null);
+      loadOrders(session);
+      loadHistoryAndEarnings(session);
+    } catch {
+      toast.error('Erro ao registrar conclusão da entrega');
+    } finally {
+      completingRef.current = false;
+      setCompletingDelivery(false);
+    }
   };
 
   const confirmReceipt = async (orderId: string) => {
@@ -433,10 +451,13 @@ export default function DriverApp() {
     window.open(`tel:${clean}`, '_self');
   };
 
-  const whatsapp = (phone: string) => {
+  const whatsapp = (phone: string, orderNumber?: number) => {
     const clean = phone.replace(/\D/g, '');
     const withCountry = clean.startsWith('55') ? clean : '55' + clean;
-    window.open(`https://wa.me/${withCountry}`, '_blank');
+    const greeting = orderNumber && session
+      ? encodeURIComponent(`Olá! Sou o entregador do ${session.restaurant_name} e estou a caminho com o seu pedido #${orderNumber}.`)
+      : '';
+    window.open(`https://wa.me/${withCountry}${greeting ? `?text=${greeting}` : ''}`, '_blank');
   };
 
   const logout = async () => {
@@ -634,7 +655,7 @@ export default function DriverApp() {
                     <Button variant="outline" size="sm" onClick={() => callCustomer(o.customer_phone!)}>
                       <Phone className="h-3.5 w-3.5 mr-1" /> Ligar
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => whatsapp(o.customer_phone!)}>
+                    <Button variant="outline" size="sm" onClick={() => whatsapp(o.customer_phone!, o.number)}>
                       WhatsApp
                     </Button>
                   </>
@@ -651,7 +672,7 @@ export default function DriverApp() {
                 </div>
               )}
               {o.status === 'delivering' && o.driver_accepted_at && (
-                <Button onClick={() => markDelivered(o.id)} className="w-full" size="sm">
+                <Button onClick={() => setConfirmDeliverOrder(o)} className="w-full" size="sm">
                   <CheckCircle2 className="h-4 w-4 mr-1" /> Marcar como entregue
                 </Button>
               )}
@@ -759,6 +780,102 @@ export default function DriverApp() {
           </Button>
         </div>
       )}
+
+      {/* Confirmation of delivery modal */}
+      <Dialog open={!!confirmDeliverOrder} onOpenChange={(open) => { if (!open) setConfirmDeliverOrder(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-success" />
+              Finalizar Pedido #{confirmDeliverOrder?.number}
+            </DialogTitle>
+            <DialogDescription>
+              Confirme a entrega para <strong>{confirmDeliverOrder?.customer_name}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+
+          {confirmDeliverOrder && (
+            <div className="space-y-3 py-1">
+              {confirmDeliverOrder.address && (
+                <div className="p-2.5 rounded-xl bg-muted/50 text-xs">
+                  <span className="font-semibold text-muted-foreground block mb-0.5">Endereço de Entrega:</span>
+                  <p className="text-foreground">{confirmDeliverOrder.address}</p>
+                </div>
+              )}
+
+              {/* Payment Instructions banner */}
+              {(() => {
+                const method = (confirmDeliverOrder.payment_method || '').toLowerCase();
+                const isCash = method.includes('dinheiro') || method === 'cash';
+                const isPix = method.includes('pix');
+                const isCard = method.includes('cartão') || method.includes('card');
+
+                if (isCash) {
+                  return (
+                    <div className="rounded-xl border border-warning/30 bg-warning/10 p-3 text-xs space-y-1">
+                      <p className="font-bold text-warning flex items-center gap-1.5">
+                        <Banknote className="h-4 w-4" /> Cobrança em Dinheiro
+                      </p>
+                      <p className="text-foreground font-medium">
+                        Receba do cliente: <strong className="text-base font-extrabold text-warning">R$ {Number(confirmDeliverOrder.total).toFixed(2)}</strong>
+                      </p>
+                    </div>
+                  );
+                }
+
+                if (isCard) {
+                  return (
+                    <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 text-xs space-y-1">
+                      <p className="font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
+                        <CreditCard className="h-4 w-4" /> Cobrança na Maquininha
+                      </p>
+                      <p className="text-foreground font-medium">
+                        Cobrar no cartão: <strong className="text-base font-extrabold text-blue-600 dark:text-blue-400">R$ {Number(confirmDeliverOrder.total).toFixed(2)}</strong>
+                      </p>
+                    </div>
+                  );
+                }
+
+                if (isPix) {
+                  return (
+                    <div className="rounded-xl border border-success/30 bg-success/10 p-3 text-xs space-y-1">
+                      <p className="font-bold text-success flex items-center gap-1.5">
+                        <CheckCircle2 className="h-4 w-4" /> Já Pago via PIX
+                      </p>
+                      <p className="text-foreground">Não cobrar valor na entrega. Apenas entregue o pedido.</p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="rounded-xl border border-border bg-muted/40 p-3 text-xs space-y-1">
+                    <p className="font-bold text-foreground">Forma de Pagamento: {confirmDeliverOrder.payment_method || 'A combinar'}</p>
+                    <p className="text-muted-foreground">Valor total: <strong>R$ {Number(confirmDeliverOrder.total).toFixed(2)}</strong></p>
+                  </div>
+                );
+              })()}
+
+              <div className="flex gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setConfirmDeliverOrder(null)}
+                  disabled={completingDelivery}
+                  className="flex-1"
+                >
+                  Voltar
+                </Button>
+                <Button
+                  onClick={() => confirmDeliverOrder && markDelivered(confirmDeliverOrder.id)}
+                  disabled={completingDelivery}
+                  className="flex-1 font-bold"
+                >
+                  {completingDelivery ? 'Concluindo...' : 'Confirmar Entrega'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

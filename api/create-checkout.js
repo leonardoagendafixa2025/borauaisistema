@@ -112,12 +112,19 @@ export default async function handler(req, res) {
         const stripe = new Stripe(stripeSecretKey);
 
         let stripePriceId = null;
+        const expectedUnitAmount = Math.round(planPrice * 100);
 
         // 1. Tentar buscar por ID direto (price_xxx)
         if (priceId && priceId.startsWith('price_')) {
           try {
             const p = await stripe.prices.retrieve(priceId);
-            if (p && p.active) stripePriceId = p.id;
+            if (p && p.active) {
+              if (expectedUnitAmount > 0 && p.unit_amount !== expectedUnitAmount) {
+                console.warn(`[create-checkout] Preço ${priceId} (${p.unit_amount}) difere do plano no banco (${expectedUnitAmount}).`);
+              } else {
+                stripePriceId = p.id;
+              }
+            }
           } catch (e) {
             console.warn('[create-checkout] Preço por ID não encontrado no Stripe:', e.message);
           }
@@ -127,8 +134,13 @@ export default async function handler(req, res) {
         if (!stripePriceId && priceId) {
           try {
             const prices = await stripe.prices.list({ lookup_keys: [priceId] });
-            if (prices.data.length > 0) {
-              stripePriceId = prices.data[0].id;
+            if (prices.data.length > 0 && prices.data[0].active) {
+              const p = prices.data[0];
+              if (expectedUnitAmount > 0 && p.unit_amount !== expectedUnitAmount) {
+                console.warn(`[create-checkout] Preço por lookup ${priceId} (${p.unit_amount}) difere do plano no banco (${expectedUnitAmount}).`);
+              } else {
+                stripePriceId = p.id;
+              }
             }
           } catch (e) {
             console.warn('[create-checkout] Preço por lookup_key não encontrado no Stripe:', e.message);
@@ -139,11 +151,46 @@ export default async function handler(req, res) {
         if (!stripePriceId && plan?.stripe_lookup_key) {
           try {
             const prices = await stripe.prices.list({ lookup_keys: [plan.stripe_lookup_key] });
-            if (prices.data.length > 0) {
-              stripePriceId = prices.data[0].id;
+            if (prices.data.length > 0 && prices.data[0].active) {
+              const p = prices.data[0];
+              if (expectedUnitAmount > 0 && p.unit_amount !== expectedUnitAmount) {
+                console.warn(`[create-checkout] Preço por plan.stripe_lookup_key (${p.unit_amount}) difere do plano no banco (${expectedUnitAmount}).`);
+              } else {
+                stripePriceId = p.id;
+              }
             }
           } catch (e) {
             console.warn('[create-checkout] Preço por plan.stripe_lookup_key não encontrado no Stripe:', e.message);
+          }
+        }
+
+        // 4. Se não encontrou preço ou se o valor estava desatualizado no Stripe, criar ou atualizar dinamicamente
+        if (!stripePriceId && expectedUnitAmount > 0) {
+          try {
+            let targetProduct = null;
+            const prods = await stripe.products.list({ limit: 20 });
+            targetProduct = prods.data.find(p => p.name.toLowerCase().includes((plan?.name || '').toLowerCase()))?.id;
+
+            if (!targetProduct) {
+              const createdProd = await stripe.products.create({
+                name: `Plano ${plan?.name || 'Bora Uai'}`,
+                description: plan?.description || 'Assinatura mensal Bora Uai',
+              });
+              targetProduct = createdProd.id;
+            }
+
+            const targetLookupKey = plan?.stripe_lookup_key || (priceId && !priceId.startsWith('price_') ? priceId : null);
+            const createdPrice = await stripe.prices.create({
+              product: targetProduct,
+              currency: 'brl',
+              unit_amount: expectedUnitAmount,
+              recurring: { interval: 'month' },
+              ...(targetLookupKey ? { lookup_key: targetLookupKey, transfer_lookup_key: true } : {}),
+            });
+            stripePriceId = createdPrice.id;
+            console.log(`[create-checkout] Preço atualizado no Stripe sob demanda: ${stripePriceId} (${expectedUnitAmount / 100} BRL)`);
+          } catch (createPriceErr) {
+            console.warn('[create-checkout] Falha ao criar preço sob demanda no Stripe:', createPriceErr.message);
           }
         }
 

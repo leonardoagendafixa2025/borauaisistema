@@ -60,10 +60,14 @@ export default function ManualOrderDialog({ open, onOpenChange }: ManualOrderDia
   const [cart, setCart] = useState<CartItem[]>([]);
   const [search, setSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [cashGiven, setCashGiven] = useState('');
 
   const deliveryFee = type === 'delivery' ? Number(settings?.delivery_fee || 0) : 0;
   const subtotal = cart.reduce((sum, it) => sum + it.unitPrice * it.qty, 0);
   const total = subtotal + deliveryFee;
+  const cashNum = parseFloat(cashGiven.replace(/\./g, '').replace(',', '.')) || 0;
+  const changeAmount = cashNum > total ? cashNum - total : 0;
+  const isInsufficient = cashNum > 0 && cashNum < total;
 
   const availablePayments: string[] = useMemo(() => {
     const pm = (settings?.payment_methods as string[]) || ['pix', 'cash', 'credit_card', 'debit_card'];
@@ -121,6 +125,7 @@ export default function ManualOrderDialog({ open, onOpenChange }: ManualOrderDia
     setNotes('');
     setCart([]);
     setSearch('');
+    setCashGiven('');
   };
 
   const handleSubmit = async () => {
@@ -147,6 +152,12 @@ export default function ManualOrderDialog({ open, onOpenChange }: ManualOrderDia
       return;
     }
 
+    let finalNotes = notes.trim();
+    if (paymentMethod === 'cash' && cashNum > 0) {
+      const trocoNote = `[Dinheiro: Pago ${formatCurrency(cashNum)}${changeAmount > 0 ? ` - Troco: ${formatCurrency(changeAmount)}` : ' - Sem troco'}]`;
+      finalNotes = finalNotes ? `${finalNotes} · ${trocoNote}` : trocoNote;
+    }
+
     setSubmitting(true);
     try {
       const { data: order, error: orderErr } = await supabase
@@ -162,7 +173,7 @@ export default function ManualOrderDialog({ open, onOpenChange }: ManualOrderDia
           total,
           payment_method: paymentMethod,
           payment_status: 'pending',
-          notes: notes.trim() || null,
+          notes: finalNotes || null,
           status: 'new',
         })
         .select()
@@ -235,6 +246,54 @@ export default function ManualOrderDialog({ open, onOpenChange }: ManualOrderDia
                   </SelectContent>
                 </Select>
               </div>
+              {paymentMethod === 'cash' && (
+                <div className="col-span-2 rounded-xl border border-warning/30 bg-warning/5 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                      💵 Cálculo de Troco no Caixa
+                    </Label>
+                    {cashNum >= total && cashNum > 0 && (
+                      <span className="text-xs font-black text-success">
+                        Troco: {formatCurrency(changeAmount)}
+                      </span>
+                    )}
+                    {isInsufficient && (
+                      <span className="text-xs font-bold text-destructive">
+                        Falta: {formatCurrency(total - cashNum)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setCashGiven(total.toFixed(2))}
+                      className="px-2.5 py-1 text-xs rounded-lg border border-border bg-background hover:bg-muted font-medium transition-all active:scale-95"
+                    >
+                      Exato ({formatCurrency(total)})
+                    </button>
+                    {[20, 50, 100, 200]
+                      .filter(val => val >= total)
+                      .map(val => (
+                        <button
+                          key={val}
+                          type="button"
+                          onClick={() => setCashGiven(val.toFixed(2))}
+                          className="px-2.5 py-1 text-xs rounded-lg border border-border bg-background hover:bg-muted font-medium transition-all active:scale-95"
+                        >
+                          R$ {val}
+                        </button>
+                      ))}
+                  </div>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    placeholder="Valor pago em dinheiro (R$)"
+                    value={cashGiven}
+                    onChange={(e) => setCashGiven(e.target.value)}
+                    className="h-9 text-sm"
+                  />
+                </div>
+              )}
               {type === 'delivery' && (
                 <div className="col-span-2">
                   <Label>Endereço de entrega *</Label>

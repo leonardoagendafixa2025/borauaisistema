@@ -26,6 +26,47 @@ import { toast } from 'sonner';
 
 const fmt = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+const QUICK_NOTES = ['Sem cebola', 'Ao ponto', 'Bem passado', 'Mal passado', 'Sem gelo', 'Com gelo e limão', 'Sem açúcar', 'Para viagem'];
+
+const playTapSound = () => {
+  try {
+    const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(600, ctx.currentTime);
+    gain.gain.setValueAtTime(0.08, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.08);
+  } catch {}
+  try { navigator.vibrate?.(25); } catch {}
+};
+
+const playSuccessSound = () => {
+  try {
+    const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const now = ctx.currentTime;
+    [587.33, 880].forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + idx * 0.1);
+      gain.gain.setValueAtTime(0.12, now + idx * 0.1);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.1 + 0.2);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now + idx * 0.1);
+      osc.stop(now + idx * 0.1 + 0.22);
+    });
+  } catch {}
+  try { navigator.vibrate?.([40, 30, 80]); } catch {}
+};
+
 type View = 'tables' | 'commands' | 'menu';
 
 interface SelectedOption { groupId: string; optionId: string; name: string; price: number; }
@@ -62,6 +103,18 @@ export default function GarcomApp() {
   const [showNewCommand, setShowNewCommand] = useState(false);
   const [newCommandName, setNewCommandName] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const creatingCommandRef = useRef(false);
+
+  const addQuickNote = (note: string) => {
+    playTapSound();
+    setProductNotes(prev => {
+      const trimmed = prev.trim();
+      if (!trimmed) return note;
+      if (trimmed.toLowerCase().includes(note.toLowerCase())) return trimmed;
+      return `${trimmed}, ${note}`;
+    });
+  };
 
   // Modal de opcionais
   const [selectedProduct, setSelectedProduct] = useState<any | null>(null);
@@ -196,13 +249,14 @@ export default function GarcomApp() {
       }
     }
     const price = Number(selectedProduct.promo_price ?? selectedProduct.price);
+    playTapSound();
     setCart(prev => [...prev, {
       lineId: generateLocalId(),
       productId: selectedProduct.id,
       name: selectedProduct.name,
       qty: 1,
       unitPrice: price,
-      notes: productNotes,
+      notes: productNotes.trim(),
       options: [...selectedOptions],
     }]);
     toast.success(selectedProduct.name, { duration: 1200 });
@@ -218,6 +272,7 @@ export default function GarcomApp() {
   };
 
   const updateQty = (lineId: string, delta: number) => {
+    playTapSound();
     setCart(prev => prev
       .map(i => i.lineId === lineId ? { ...i, qty: i.qty + delta } : i)
       .filter(i => i.qty > 0)
@@ -225,136 +280,152 @@ export default function GarcomApp() {
   };
 
   const removeItem = (lineId: string) => {
+    playTapSound();
     setCart(prev => prev.filter(i => i.lineId !== lineId));
   };
 
   const handleCreateCommand = async () => {
-    if (!restaurantId || !selectedTable?.id || !newCommandName.trim()) return;
+    if (creatingCommandRef.current || submitting || !restaurantId || !selectedTable?.id || !newCommandName.trim()) return;
+    creatingCommandRef.current = true;
     setSubmitting(true);
 
-    if (online) {
-      const { data, error } = await (supabase as any)
-        .from('table_commands')
-        .insert({
-          restaurant_id: restaurantId,
-          table_id: selectedTable.id,
-          customer_name: newCommandName.trim(),
-          created_by: user?.id || null,
-        })
-        .select()
-        .single();
-      setSubmitting(false);
-      if (error) {
-        toast.error('Erro ao abrir comanda');
-        return;
+    try {
+      if (online) {
+        const { data, error } = await (supabase as any)
+          .from('table_commands')
+          .insert({
+            restaurant_id: restaurantId,
+            table_id: selectedTable.id,
+            customer_name: newCommandName.trim(),
+            created_by: user?.id || null,
+          })
+          .select()
+          .single();
+        if (error) {
+          toast.error('Erro ao abrir comanda');
+          return;
+        }
+        playTapSound();
+        toast.success(`Comanda "${newCommandName}" aberta!`);
+        setNewCommandName('');
+        setShowNewCommand(false);
+        refetchCommands();
+        // Auto-select new command and go to menu
+        setSelectedCommand(data);
+        setView('menu');
+      } else {
+        // Offline queue
+        await offlineDb.pendingCommands.add({
+          localId: generateLocalId(),
+          restaurantId,
+          tableId: selectedTable.id,
+          customerName: newCommandName.trim(),
+          createdAt: Date.now(),
+          attempts: 0,
+          status: 'pending',
+        });
+        playTapSound();
+        toast.success(`Comanda "${newCommandName}" salva offline`);
+        setNewCommandName('');
+        setShowNewCommand(false);
       }
-      toast.success(`Comanda "${newCommandName}" aberta!`);
-      setNewCommandName('');
-      setShowNewCommand(false);
-      refetchCommands();
-      // Auto-select new command and go to menu
-      setSelectedCommand(data);
-      setView('menu');
-    } else {
-      // Offline queue
-      await offlineDb.pendingCommands.add({
-        localId: generateLocalId(),
-        restaurantId,
-        tableId: selectedTable.id,
-        customerName: newCommandName.trim(),
-        createdAt: Date.now(),
-        attempts: 0,
-        status: 'pending',
-      });
+    } finally {
+      creatingCommandRef.current = false;
       setSubmitting(false);
-      toast.success(`Comanda "${newCommandName}" salva offline`);
-      setNewCommandName('');
-      setShowNewCommand(false);
     }
   };
 
   const handleSendOrder = async () => {
-    if (!restaurantId || !selectedTable?.id || cart.length === 0) return;
+    if (submittingRef.current || submitting || !restaurantId || !selectedTable?.id || cart.length === 0) return;
+    submittingRef.current = true;
     setSubmitting(true);
 
-    const items = cart.map(i => {
-      const optionsTotal = (i.options || []).reduce((s, o) => s + o.price, 0);
-      const lineUnit = i.unitPrice + optionsTotal;
-      return {
-        productId: i.productId,
-        name: i.name,
-        qty: i.qty,
-        unitPrice: lineUnit,
-        totalPrice: i.qty * lineUnit,
-        notes: i.notes,
-        options: i.options || [],
-      };
-    });
-    const subtotal = items.reduce((s, i) => s + i.totalPrice, 0);
-    const customerName = selectedCommand?.customer_name?.replace(' (offline)', '') || `Mesa ${selectedTable.number}`;
-    const commandId = selectedCommand?.__pending ? selectedCommand.id : (selectedCommand?.id || null);
+    try {
+      const items = cart.map(i => {
+        const optionsTotal = (i.options || []).reduce((s, o) => s + o.price, 0);
+        const lineUnit = i.unitPrice + optionsTotal;
+        return {
+          productId: i.productId,
+          name: i.name,
+          qty: i.qty,
+          unitPrice: lineUnit,
+          totalPrice: i.qty * lineUnit,
+          notes: i.notes,
+          options: i.options || [],
+        };
+      });
+      const subtotal = items.reduce((s, i) => s + i.totalPrice, 0);
+      const customerName = selectedCommand?.customer_name?.replace(' (offline)', '') || `Mesa ${selectedTable.number}`;
+      const commandId = selectedCommand?.__pending ? selectedCommand.id : (selectedCommand?.id || null);
 
-    if (online && !selectedCommand?.__pending) {
-      const { data: order, error: orderErr } = await supabase
-        .from('orders')
-        .insert({
-          restaurant_id: restaurantId,
-          table_id: selectedTable.id,
-          type: 'dine_in' as any,
-          customer_name: customerName,
+      if (online && !selectedCommand?.__pending) {
+        const orderId = crypto.randomUUID();
+        const { data: order, error: orderErr } = await supabase
+          .from('orders')
+          .insert({
+            id: orderId,
+            restaurant_id: restaurantId,
+            table_id: selectedTable.id,
+            type: 'dine_in' as any,
+            customer_name: customerName,
+            subtotal,
+            total: subtotal,
+            status: 'new' as any,
+            served_by: user?.id || null,
+          })
+          .select()
+          .single();
+
+        if (orderErr || !order) {
+          toast.error('Erro ao enviar pedido');
+          return;
+        }
+
+        const itemsPayload = items.map(it => ({
+          order_id: order.id,
+          product_id: it.productId,
+          name: it.name,
+          qty: it.qty,
+          unit_price: it.unitPrice,
+          total_price: it.totalPrice,
+          notes: it.notes || null,
+          options: it.options as any,
+          command_id: commandId,
+        }));
+        await (supabase as any).from('order_items').insert(itemsPayload);
+        playSuccessSound();
+        toast.success('Pedido enviado para a cozinha! 🚀');
+        queryClient.invalidateQueries({ queryKey: ['orders', restaurantId] });
+        queryClient.invalidateQueries({ queryKey: ['my-sales'] });
+      } else {
+        // Offline queue
+        await offlineDb.pendingOrders.add({
+          localId: generateLocalId(),
+          restaurantId,
+          tableId: selectedTable.id,
+          commandId,
+          customerName,
+          items,
           subtotal,
           total: subtotal,
-          status: 'new' as any,
-          served_by: user?.id || null,
-        })
-        .select()
-        .single();
-
-      if (orderErr || !order) {
-        setSubmitting(false);
-        toast.error('Erro ao enviar pedido');
-        return;
+          servedBy: user?.id || null,
+          createdAt: Date.now(),
+          attempts: 0,
+          status: 'pending',
+        });
+        playSuccessSound();
+        toast.success('Pedido salvo offline — sincronizará ao voltar a conexão');
       }
 
-      const itemsPayload = items.map(it => ({
-        order_id: order.id,
-        product_id: it.productId,
-        name: it.name,
-        qty: it.qty,
-        unit_price: it.unitPrice,
-        total_price: it.totalPrice,
-        notes: it.notes || null,
-        options: it.options as any,
-        command_id: commandId,
-      }));
-      await (supabase as any).from('order_items').insert(itemsPayload);
+      setCart([]);
+      setShowCart(false);
+      setView('commands');
+    } catch (err) {
+      toast.error('Erro ao processar envio do pedido');
+    } finally {
+      submittingRef.current = false;
       setSubmitting(false);
-      toast.success('Pedido enviado para a cozinha! 🚀');
-      queryClient.invalidateQueries({ queryKey: ['orders', restaurantId] });
-      queryClient.invalidateQueries({ queryKey: ['my-sales'] });
-    } else {
-      // Offline queue
-      await offlineDb.pendingOrders.add({
-        localId: generateLocalId(),
-        restaurantId,
-        tableId: selectedTable.id,
-        commandId,
-        customerName,
-        items,
-        subtotal,
-        total: subtotal,
-        servedBy: user?.id || null,
-        createdAt: Date.now(),
-        attempts: 0,
-        status: 'pending',
-      });
-      setSubmitting(false);
-      toast.success('Pedido salvo offline — sincronizará ao voltar a conexão');
     }
-
-    setCart([]);
-    setShowCart(false);
-    setView('commands');
   };
 
   // ============ VIEWS ============
@@ -705,10 +776,19 @@ export default function GarcomApp() {
             <Button
               onClick={handleSendOrder}
               disabled={submitting || cart.length === 0}
-              className="w-full h-12 text-base"
+              className="w-full h-12 text-base font-bold"
             >
-              <Send className="h-4 w-4 mr-2" />
-              {online ? 'Enviar para cozinha' : 'Salvar offline'}
+              {submitting ? (
+                <>
+                  <span className="animate-spin mr-2">⏳</span>
+                  Enviando pedido...
+                </>
+              ) : (
+                <>
+                  <Send className="h-4 w-4 mr-2" />
+                  {online ? 'Enviar para cozinha' : 'Salvar offline'}
+                </>
+              )}
             </Button>
           </div>
         </SheetContent>
@@ -816,12 +896,35 @@ export default function GarcomApp() {
                 )}
 
                 <div>
-                  <label className="text-[11px] uppercase text-muted-foreground font-medium">Observações</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] uppercase text-muted-foreground font-medium">Observações</label>
+                    {productNotes && (
+                      <button
+                        type="button"
+                        onClick={() => setProductNotes('')}
+                        className="text-[10px] text-destructive hover:underline"
+                      >
+                        Limpar
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mt-1.5 mb-2">
+                    {QUICK_NOTES.map(note => (
+                      <button
+                        key={note}
+                        type="button"
+                        onClick={() => addQuickNote(note)}
+                        className="rounded-full bg-muted hover:bg-primary/10 hover:text-primary text-[11px] font-medium px-2.5 py-1 transition-all active:scale-95"
+                      >
+                        + {note}
+                      </button>
+                    ))}
+                  </div>
                   <Input
-                    placeholder="Ex: sem cebola, ponto da carne..."
+                    placeholder="Ou digite observações personalizadas..."
                     value={productNotes}
                     onChange={(e) => setProductNotes(e.target.value)}
-                    className="mt-1 h-9 text-sm"
+                    className="h-9 text-sm"
                   />
                 </div>
 

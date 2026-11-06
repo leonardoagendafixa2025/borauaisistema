@@ -65,6 +65,7 @@ export default function TableBill() {
   const [callSent, setCallSent] = useState(false);
   const [billSent, setBillSent] = useState(false);
   const [splitOpen, setSplitOpen] = useState(false);
+  const [includeServiceFee, setIncludeServiceFee] = useState(true);
 
   const fetchOrders = async () => {
     if (!restaurant?.id || !table?.id) return;
@@ -93,8 +94,15 @@ export default function TableBill() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'waiter_calls', filter: `table_id=eq.${table.id}` },
         (payload: any) => {
-          if (payload.eventType === 'UPDATE' && payload.new?.status === 'attended') {
-            toast.success('✅ O garçom já está indo até sua mesa!', { duration: 8000 });
+          if (payload.eventType === 'UPDATE') {
+            const newStatus = payload.new?.status;
+            if (newStatus === 'acknowledged' || newStatus === 'attended') {
+              toast.success('✅ O garçom já está indo até sua mesa!', { duration: 8000 });
+            } else if (newStatus === 'completed') {
+              toast('Atendimento da mesa concluído', { duration: 5000 });
+              setCallSent(false);
+              setBillSent(false);
+            }
           }
         }
       )
@@ -114,7 +122,8 @@ export default function TableBill() {
   const subtotalAll = orders.reduce((sum, o) => sum + Number(o.subtotal || 0), 0);
   const couvertValue = settings?.couvert_enabled ? Number(settings.couvert_value || 0) : 0;
   const serviceFeePercent = Number(settings?.service_fee_percent || 10);
-  const serviceFee = settings?.service_fee_enabled ? subtotalAll * serviceFeePercent / 100 : 0;
+  const rawServiceFee = settings?.service_fee_enabled ? (subtotalAll * serviceFeePercent) / 100 : 0;
+  const serviceFee = includeServiceFee ? rawServiceFee : 0;
   const grandTotal = subtotalAll + couvertValue + serviceFee;
 
   const callWaiter = async () => {
@@ -221,22 +230,45 @@ export default function TableBill() {
                 </h2>
                 <span className="text-xs text-muted-foreground">{orders.length} pedido{orders.length > 1 ? 's' : ''}</span>
               </div>
-              <div className="space-y-1 text-sm">
+              <div className="space-y-1.5 text-sm">
                 <div className="flex justify-between text-muted-foreground">
-                  <span>Subtotal</span><span className="tabular-nums">{fmt(subtotalAll)}</span>
+                  <span>Subtotal</span><span className="tabular-nums font-medium text-foreground">{fmt(subtotalAll)}</span>
                 </div>
                 {couvertValue > 0 && (
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Couvert artístico</span><span className="tabular-nums">{fmt(couvertValue)}</span>
+                  <div className="flex justify-between text-muted-foreground items-center">
+                    <span className="flex items-center gap-1.5">
+                      <span>Couvert artístico</span>
+                      <span className="text-[10px] bg-primary/10 text-primary font-medium px-1.5 py-0.5 rounded">Música ao vivo</span>
+                    </span>
+                    <span className="tabular-nums font-medium text-foreground">{fmt(couvertValue)}</span>
                   </div>
                 )}
-                {serviceFee > 0 && (
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Taxa de serviço ({serviceFeePercent}%)</span><span className="tabular-nums">{fmt(serviceFee)}</span>
+                {settings?.service_fee_enabled && (
+                  <div className="flex justify-between text-muted-foreground items-center">
+                    <span className="flex items-center gap-1.5">
+                      <span>Taxa de serviço ({serviceFeePercent}%)</span>
+                      <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground font-medium">Opcional</span>
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className={`tabular-nums font-medium text-foreground ${!includeServiceFee ? 'line-through opacity-50' : ''}`}>
+                        {fmt(rawServiceFee)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setIncludeServiceFee(v => !v)}
+                        className={`text-[10px] font-semibold px-2 py-0.5 rounded transition-all active:scale-95 ${
+                          includeServiceFee
+                            ? 'bg-primary/10 text-primary hover:bg-primary/20'
+                            : 'bg-muted text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {includeServiceFee ? 'Remover' : 'Incluir'}
+                      </button>
+                    </div>
                   </div>
                 )}
                 <div className="flex justify-between font-bold text-base pt-2 border-t border-border">
-                  <span>Total</span><span className="tabular-nums">{fmt(grandTotal)}</span>
+                  <span>Total</span><span className="tabular-nums text-primary text-lg">{fmt(grandTotal)}</span>
                 </div>
               </div>
             </div>
@@ -380,12 +412,39 @@ export default function TableBill() {
           <div className="bg-card rounded-2xl p-5 max-w-sm w-full space-y-4" onClick={e => e.stopPropagation()}>
             <div className="text-center">
               <HandCoins className="h-8 w-8 text-primary mx-auto mb-2" />
-              <h3 className="font-heading font-bold">Pedir a conta?</h3>
-              <p className="text-sm text-muted-foreground">Total atual da mesa: <strong>{fmt(grandTotal)}</strong>. O garçom levará a maquininha até você.</p>
+              <h3 className="font-heading font-bold text-base">Pedir a conta?</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">O garçom levará a maquininha ou fechamento até a Mesa {tableNumber}.</p>
+            </div>
+            <div className="rounded-xl bg-muted/40 p-3 space-y-1.5 text-xs">
+              <div className="flex justify-between text-muted-foreground">
+                <span>Subtotal ({orders.length} pedidos)</span>
+                <span className="tabular-nums font-medium text-foreground">{fmt(subtotalAll)}</span>
+              </div>
+              {couvertValue > 0 && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Couvert artístico</span>
+                  <span className="tabular-nums font-medium text-foreground">{fmt(couvertValue)}</span>
+                </div>
+              )}
+              {settings?.service_fee_enabled && (
+                <div className="flex justify-between items-center text-muted-foreground">
+                  <div className="flex items-center gap-1">
+                    <span>Taxa de serviço ({serviceFeePercent}%)</span>
+                    <span className="text-[9px] bg-muted px-1 rounded">Opcional</span>
+                  </div>
+                  <span className={`tabular-nums font-medium text-foreground ${!includeServiceFee ? 'line-through opacity-50' : ''}`}>
+                    {includeServiceFee ? fmt(rawServiceFee) : 'R$ 0,00'}
+                  </span>
+                </div>
+              )}
+              <div className="flex justify-between font-bold text-sm text-foreground pt-1.5 border-t border-border">
+                <span>Total a pagar</span>
+                <span className="tabular-nums text-primary text-base font-extrabold">{fmt(grandTotal)}</span>
+              </div>
             </div>
             <div className="flex gap-2">
-              <button onClick={() => setShowBillConfirm(false)} className="flex-1 rounded-xl border border-border py-2.5 text-sm font-medium hover:bg-muted">Cancelar</button>
-              <button onClick={requestBill} className="flex-1 rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90">Pedir</button>
+              <button onClick={() => setShowBillConfirm(false)} className="flex-1 rounded-xl border border-border py-2.5 text-xs font-semibold hover:bg-muted transition-colors">Voltar</button>
+              <button onClick={requestBill} className="flex-1 rounded-xl bg-primary py-2.5 text-xs font-bold text-primary-foreground hover:bg-primary/90 transition-all active:scale-95">Solicitar Conta</button>
             </div>
           </div>
         </div>

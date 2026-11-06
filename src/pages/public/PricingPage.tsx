@@ -37,17 +37,17 @@ export default function PricingPage() {
   // Fallback estático: garante que a página nunca fica vazia se o banco estiver lento/fora.
   const FALLBACK_PLANS = [
     {
-      id: 'fallback-basic', name: 'Básico', tier: 'basic', price: 69.99,
+      id: 'fallback-basic', name: 'Básico', tier: 'basic', price: 49.99,
       description: 'Comece pequeno: PDV, cardápio digital e delivery próprio.',
       features: ['PDV + caixa', 'Cardápio digital QR', 'Delivery & retirada', 'Cupons (até 5)', '2 usuários', 'Suporte por e-mail'],
     },
     {
-      id: 'fallback-pro', name: 'Profissional', tier: 'professional', price: 119.99,
+      id: 'fallback-pro', name: 'Profissional', tier: 'professional', price: 89.99,
       description: 'O queridinho dos bares: comandas, KDS, garçom e modo balada.',
       features: ['Tudo do Básico', 'QR Code na mesa', 'KDS (cozinha)', 'Garçom PWA offline', 'Comandas individuais', 'Modo Balada + DJ', 'Estoque', '5 usuários', 'Suporte prioritário'],
     },
     {
-      id: 'fallback-premium', name: 'Premium', tier: 'premium', price: 199.99,
+      id: 'fallback-premium', name: 'Premium', tier: 'premium', price: 149.99,
       description: 'Operação completa: IA, bot Telegram, domínio e suporte 24/7.',
       features: ['Tudo do Profissional', 'IA Insights', 'Bot Telegram inteligente', 'Domínio personalizado', 'Usuários ilimitados', 'Cupons ilimitados', 'Suporte 24/7'],
     },
@@ -80,8 +80,8 @@ export default function PricingPage() {
   return (
     <div className="min-h-screen bg-background text-foreground font-body">
       <SEO
-        title="Preços e Planos — Bora Uai | A partir de R$ 69,99/mês"
-        description="Planos a partir de R$ 69,99/mês. Teste 14 dias grátis sem cartão. Cardápio QR, KDS, comanda eletrônica, delivery, modo balada. Sem taxa por pedido."
+        title="Preços e Planos — Bora Uai | A partir de R$ 49,99/mês"
+        description="Planos a partir de R$ 49,99/mês. Teste 14 dias grátis sem cartão. Cardápio QR, KDS, comanda eletrônica, delivery, modo balada. Sem taxa por pedido."
         path="/precos"
         jsonLd={faqJsonLd}
       />

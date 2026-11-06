@@ -325,6 +325,7 @@ export default function KitchenDisplay() {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   const updateStatus = async (orderId: string, newStatus: OrderStatus) => {
+    if (updatingId === orderId) return;
     let finalStatus = newStatus;
     // Differentiate ready by order type
     if (finalStatus === 'ready') {
@@ -381,9 +382,24 @@ export default function KitchenDisplay() {
   // Urgência baseada em minutos desde criação
   const getUrgency = (createdAt: string) => {
     const mins = minsSince(createdAt);
-    if (mins >= 20) return { level: 'late', cls: 'ring-2 ring-destructive/60 shadow-[0_0_0_4px_hsl(var(--destructive)/0.08)]', badge: 'bg-destructive text-destructive-foreground' };
-    if (mins >= 10) return { level: 'warn', cls: 'ring-2 ring-warning/50', badge: 'bg-warning/15 text-warning' };
-    return { level: 'ok', cls: 'ring-1 ring-border/60', badge: 'bg-muted text-muted-foreground' };
+    if (mins >= 20) return {
+      level: 'late',
+      mins,
+      cls: 'ring-2 ring-destructive/80 shadow-[0_0_0_4px_hsl(var(--destructive)/0.15)] border-l-4 border-l-destructive',
+      badge: 'bg-destructive text-destructive-foreground font-black animate-pulse'
+    };
+    if (mins >= 10) return {
+      level: 'warn',
+      mins,
+      cls: 'ring-2 ring-warning/60 border-l-4 border-l-warning',
+      badge: 'bg-warning/20 text-warning font-black'
+    };
+    return {
+      level: 'ok',
+      mins,
+      cls: 'ring-1 ring-border/60',
+      badge: 'bg-muted text-muted-foreground font-semibold'
+    };
   };
 
   const typeLabels: Record<string, string> = { delivery: '🛵 Entrega', pickup: '🏪 Retirada', dine_in: '🍽️ Mesa' };
@@ -688,6 +704,14 @@ export default function KitchenDisplay() {
                   const urg = getUrgency(order.created_at);
                   return (
                     <div key={order.id} className={`bg-card rounded-2xl p-3.5 space-y-2.5 transition-all hover:-translate-y-0.5 hover:shadow-lg ${urg.cls}`}>
+                      {urg.level === 'late' && order.status !== 'ready' && (
+                        <div className="rounded-xl bg-destructive/15 border border-destructive/30 px-2.5 py-1 text-xs font-black text-destructive flex items-center justify-between">
+                          <span className="flex items-center gap-1.5">
+                            <Flame className="h-3.5 w-3.5 animate-bounce" /> ATRASO CRÍTICO (&gt;20min)
+                          </span>
+                          <span className="tabular-nums font-black">{urg.mins} min</span>
+                        </div>
+                      )}
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="font-heading font-black text-xl tracking-tight">#{order.number}</span>
@@ -726,21 +750,30 @@ export default function KitchenDisplay() {
                       {order.notes && <p className="text-xs font-medium bg-warning/10 text-warning rounded-lg px-2.5 py-1.5">📝 {order.notes}</p>}
                       <div className="flex gap-2 pt-0.5">
                         {order.status === 'new' && (
-                          <button onClick={() => updateStatus(order.id, 'accepted')}
-                            className="flex-1 rounded-xl bg-blue-500 py-2.5 text-xs font-black text-white hover:bg-blue-600 active:scale-[0.98] transition-all shadow-sm">
-                            ✓ Aceitar
+                          <button
+                            onClick={() => updateStatus(order.id, 'accepted')}
+                            disabled={updatingId === order.id}
+                            className="flex-1 rounded-xl bg-blue-500 py-2.5 text-xs font-black text-white hover:bg-blue-600 active:scale-[0.98] transition-all shadow-sm disabled:opacity-50"
+                          >
+                            {updatingId === order.id ? 'Salvando...' : '✓ Aceitar'}
                           </button>
                         )}
                         {order.status === 'accepted' && (
-                          <button onClick={() => updateStatus(order.id, 'preparing')}
-                            className="flex-1 rounded-xl bg-warning py-2.5 text-xs font-black text-white hover:bg-warning/90 active:scale-[0.98] transition-all shadow-sm">
-                            🔥 Preparar
+                          <button
+                            onClick={() => updateStatus(order.id, 'preparing')}
+                            disabled={updatingId === order.id}
+                            className="flex-1 rounded-xl bg-warning py-2.5 text-xs font-black text-white hover:bg-warning/90 active:scale-[0.98] transition-all shadow-sm disabled:opacity-50"
+                          >
+                            {updatingId === order.id ? 'Salvando...' : '🔥 Preparar'}
                           </button>
                         )}
                         {order.status === 'preparing' && (
-                          <button onClick={() => updateStatus(order.id, 'ready')}
-                            className="flex-1 rounded-xl bg-success py-2.5 text-xs font-black text-white hover:bg-success/90 active:scale-[0.98] transition-all shadow-sm">
-                            ✓ Pronto!
+                          <button
+                            onClick={() => updateStatus(order.id, 'ready')}
+                            disabled={updatingId === order.id}
+                            className="flex-1 rounded-xl bg-success py-2.5 text-xs font-black text-white hover:bg-success/90 active:scale-[0.98] transition-all shadow-sm disabled:opacity-50"
+                          >
+                            {updatingId === order.id ? 'Salvando...' : '✓ Pronto!'}
                           </button>
                         )}
                         {order.status === 'ready' && (
@@ -752,9 +785,12 @@ export default function KitchenDisplay() {
                               </a>
                             )}
                             {order.type !== 'delivery' && (
-                              <button onClick={() => updateStatus(order.id, 'completed')}
-                                className="flex-1 rounded-xl bg-foreground py-2.5 text-xs font-black text-background hover:bg-foreground/90 active:scale-[0.98] transition-all shadow-sm">
-                                Concluir
+                              <button
+                                onClick={() => updateStatus(order.id, 'completed')}
+                                disabled={updatingId === order.id}
+                                className="flex-1 rounded-xl bg-foreground py-2.5 text-xs font-black text-background hover:bg-foreground/90 active:scale-[0.98] transition-all shadow-sm disabled:opacity-50"
+                              >
+                                {updatingId === order.id ? 'Salvando...' : 'Concluir'}
                               </button>
                             )}
                           </>

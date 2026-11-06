@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Loader2, ArrowLeft, CheckCircle, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -12,9 +12,15 @@ export default function MasterLogin() {
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<'login' | 'forgot'>('login');
   const [forgotSent, setForgotSent] = useState(false);
-  const { signIn, resetPassword } = useAuth();
+  const { user, isMasterAdmin, loading: authLoading, signIn, resetPassword } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (!authLoading && user && isMasterAdmin) {
+      navigate('/master', { replace: true });
+    }
+  }, [user, isMasterAdmin, authLoading, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
