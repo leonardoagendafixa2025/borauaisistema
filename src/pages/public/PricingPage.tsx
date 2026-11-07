@@ -18,6 +18,7 @@ export default function PricingPage() {
   const faqs = [
     { q: 'Tem fidelidade?', a: 'Não. É mensal e você cancela quando quiser, direto pelo painel.' },
     { q: 'Cobra taxa por pedido?', a: 'Não. Pagou a mensalidade, faz pedidos ilimitados. Você fica com 100% das vendas.' },
+    { q: 'O Bora Uai emite Nota Fiscal (NFC-e)?', a: 'O Bora Uai é especializado na gestão operacional rápida: pedidos, cardápio digital, mesas, comandas, cozinha (KDS) e entregadores. O fechamento e controle de caixa são feitos no sistema, enquanto a emissão fiscal segue sendo feita pela sua maquininha de cartão ou emissor fiscal de sua preferência.' },
     { q: 'Como funcionam os 14 dias grátis?', a: 'Cadastra sem cartão, usa tudo do plano Profissional por 14 dias. Depois escolhe o plano.' },
     { q: 'E se eu quiser trocar de plano?', a: 'Pode subir ou descer plano a qualquer momento. O valor é ajustado proporcionalmente.' },
     { q: 'Funciona no celular?', a: 'Sim. Painel responsivo + apps PWA do garçom e cozinha. Instala como app no celular.' },

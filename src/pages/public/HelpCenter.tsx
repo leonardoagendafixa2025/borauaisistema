@@ -38,6 +38,7 @@ const FAQ_CATEGORIES = [
     name: '💰 Cobrança e planos',
     items: [
       { q: 'Como pago a mensalidade?', a: 'Cartão de crédito recorrente via Stripe (checkout seguro). Sem precisar lembrar de pagar — renovação automática mensal.' },
+      { q: 'O Bora Uai emite Cupom Fiscal (NFC-e)?', a: 'O Bora Uai cuida de 100% da rotina operacional (pedidos, mesas, delivery, comandas e caixa). A emissão fiscal é de responsabilidade do estabelecimento e segue sendo realizada pela sua maquininha de cartão ou emissor fiscal credenciado na SEFAZ.' },
       { q: 'Posso cancelar quando quiser?', a: 'Sim. Sem multa, sem fidelidade. No painel, vá em "Assinatura" → "Cancelar". Você continua usando até o fim do mês pago.' },
       { q: 'Posso trocar de plano?', a: 'Sim, a qualquer momento. Subindo de plano, libera na hora. Descendo, vale a partir do próximo ciclo.' },
       { q: 'O que acontece se eu não pagar?', a: 'Você tem 5 dias de tolerância. Após isso, a conta é suspensa (pedidos param) até regularizar. Seus dados ficam guardados por 90 dias.' },
