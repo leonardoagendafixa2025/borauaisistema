@@ -82,13 +82,150 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // Action: set restaurant owner credentials safely
+    if (action === "set-restaurant-owner") {
+      const { restaurant_id } = body;
+      if (!restaurant_id) {
+        return new Response(JSON.stringify({ error: "restaurant_id é obrigatório" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const { data: rest, error: restErr } = await adminClient
+        .from("restaurants")
+        .select("id, name, email, owner_id")
+        .eq("id", restaurant_id)
+        .single();
+
+      if (restErr || !rest) {
+        return new Response(JSON.stringify({ error: "Restaurante não encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const cleanEmail = email ? email.trim().toLowerCase() : (rest.email || "").trim().toLowerCase();
+      if (!cleanEmail && !user_id) {
+        return new Response(JSON.stringify({ error: "E-mail do proprietário é obrigatório" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      let targetUserId = rest.owner_id;
+      const isOwnerSuperAdmin = targetUserId === callerId;
+      const needsNewOrSeparateAccount = !targetUserId || isOwnerSuperAdmin || (email && cleanEmail !== (rest.email || "").toLowerCase());
+
+      if (needsNewOrSeparateAccount) {
+        let foundUser: any = null;
+        if (cleanEmail) {
+          const { data: listRes } = await adminClient.auth.admin.listUsers();
+          foundUser = listRes?.users?.find((u: any) => u.email?.toLowerCase() === cleanEmail);
+        }
+
+        if (foundUser) {
+          targetUserId = foundUser.id;
+          if (password) {
+            await adminClient.auth.admin.updateUserById(targetUserId, { password });
+          }
+        } else {
+          if (!cleanEmail) {
+            return new Response(JSON.stringify({ error: "Informe um e-mail válido para o proprietário" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          }
+          const { data: created, error: createErr } = await adminClient.auth.admin.createUser({
+            email: cleanEmail,
+            password: password || "12345678",
+            email_confirm: true,
+            user_metadata: { full_name: body.full_name || rest.name },
+          });
+
+          if (createErr) {
+            return new Response(JSON.stringify({ error: createErr.message }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          }
+          targetUserId = created.user.id;
+        }
+
+        await adminClient
+          .from("restaurants")
+          .update({
+            owner_id: targetUserId,
+            ...(cleanEmail ? { email: cleanEmail } : {}),
+          })
+          .eq("id", restaurant_id);
+
+        const { data: existingRole } = await adminClient
+          .from("user_roles")
+          .select("id")
+          .eq("user_id", targetUserId)
+          .eq("restaurant_id", restaurant_id)
+          .eq("role", "owner")
+          .maybeSingle();
+
+        if (!existingRole) {
+          await adminClient.from("user_roles").insert({
+            user_id: targetUserId,
+            restaurant_id,
+            role: "owner",
+          });
+        }
+
+        if (isOwnerSuperAdmin && targetUserId !== callerId) {
+          await adminClient
+            .from("user_roles")
+            .delete()
+            .eq("user_id", callerId)
+            .eq("restaurant_id", restaurant_id)
+            .eq("role", "owner");
+        }
+
+        const { data: profile } = await adminClient
+          .from("profiles")
+          .select("id")
+          .eq("user_id", targetUserId)
+          .maybeSingle();
+
+        if (!profile) {
+          await adminClient.from("profiles").insert({
+            user_id: targetUserId,
+            full_name: body.full_name || rest.name,
+          });
+        }
+
+        return new Response(JSON.stringify({
+          success: true,
+          owner_id: targetUserId,
+          email: cleanEmail,
+          message: "Proprietário atualizado e vinculado ao restaurante.",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // If already a separate user, update their credentials directly
+      const updates: Record<string, any> = {};
+      if (email) {
+        updates.email = cleanEmail;
+        updates.email_confirm = true;
+      }
+      if (password) updates.password = password;
+
+      if (Object.keys(updates).length > 0) {
+        const { error: updErr } = await adminClient.auth.admin.updateUserById(targetUserId, updates);
+        if (updErr) return new Response(JSON.stringify({ error: updErr.message }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      if (cleanEmail) {
+        await adminClient.from("restaurants").update({ email: cleanEmail }).eq("id", restaurant_id);
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        owner_id: targetUserId,
+        email: cleanEmail || rest.email,
+        message: "Credenciais atualizadas com sucesso.",
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     // Default: update user
     if (!user_id) {
       return new Response(JSON.stringify({ error: "user_id é obrigatório" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const updates: Record<string, string> = {};
-    if (email) updates.email = email;
+    const updates: Record<string, any> = {};
+    if (email) {
+      updates.email = email.trim().toLowerCase();
+      updates.email_confirm = true;
+    }
     if (password) updates.password = password;
 
     if (Object.keys(updates).length === 0) {

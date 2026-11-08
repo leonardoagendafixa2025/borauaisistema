@@ -104,13 +104,150 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true });
     }
 
-    // 4. Default: Update user
+    // 4. Safe restaurant owner credentials management
+    if (action === 'set-restaurant-owner') {
+      const { restaurant_id } = req.body || {};
+      if (!restaurant_id) {
+        return res.status(400).json({ error: 'restaurant_id é obrigatório' });
+      }
+
+      const { data: rest, error: restErr } = await adminClient
+        .from('restaurants')
+        .select('id, name, email, owner_id')
+        .eq('id', restaurant_id)
+        .single();
+
+      if (restErr || !rest) {
+        return res.status(404).json({ error: 'Restaurante não encontrado' });
+      }
+
+      const cleanEmail = email ? email.trim().toLowerCase() : (rest.email || '').trim().toLowerCase();
+      if (!cleanEmail && !user_id) {
+        return res.status(400).json({ error: 'E-mail do proprietário é obrigatório' });
+      }
+
+      let targetUserId = rest.owner_id;
+      const isOwnerSuperAdmin = targetUserId === callerId;
+      const needsNewOrSeparateAccount = !targetUserId || isOwnerSuperAdmin || (email && cleanEmail !== (rest.email || '').toLowerCase());
+
+      if (needsNewOrSeparateAccount) {
+        let foundUser = null;
+        if (cleanEmail) {
+          const { data: listRes } = await adminClient.auth.admin.listUsers();
+          foundUser = listRes?.users?.find(u => u.email?.toLowerCase() === cleanEmail);
+        }
+
+        if (foundUser) {
+          targetUserId = foundUser.id;
+          if (password) {
+            await adminClient.auth.admin.updateUserById(targetUserId, { password });
+          }
+        } else {
+          if (!cleanEmail) {
+            return res.status(400).json({ error: 'Informe um e-mail válido para o proprietário' });
+          }
+          const { data: created, error: createErr } = await adminClient.auth.admin.createUser({
+            email: cleanEmail,
+            password: password || '12345678',
+            email_confirm: true,
+            user_metadata: { full_name: full_name || rest.name },
+          });
+
+          if (createErr) {
+            return res.status(400).json({ error: createErr.message });
+          }
+          targetUserId = created.user.id;
+        }
+
+        await adminClient
+          .from('restaurants')
+          .update({
+            owner_id: targetUserId,
+            ...(cleanEmail ? { email: cleanEmail } : {}),
+          })
+          .eq('id', restaurant_id);
+
+        const { data: existingRole } = await adminClient
+          .from('user_roles')
+          .select('id')
+          .eq('user_id', targetUserId)
+          .eq('restaurant_id', restaurant_id)
+          .eq('role', 'owner')
+          .maybeSingle();
+
+        if (!existingRole) {
+          await adminClient.from('user_roles').insert({
+            user_id: targetUserId,
+            restaurant_id,
+            role: 'owner',
+          });
+        }
+
+        if (isOwnerSuperAdmin && targetUserId !== callerId) {
+          await adminClient
+            .from('user_roles')
+            .delete()
+            .eq('user_id', callerId)
+            .eq('restaurant_id', restaurant_id)
+            .eq('role', 'owner');
+        }
+
+        const { data: profile } = await adminClient
+          .from('profiles')
+          .select('id')
+          .eq('user_id', targetUserId)
+          .maybeSingle();
+
+        if (!profile) {
+          await adminClient.from('profiles').insert({
+            user_id: targetUserId,
+            full_name: full_name || rest.name,
+          });
+        }
+
+        return res.status(200).json({
+          success: true,
+          owner_id: targetUserId,
+          email: cleanEmail,
+          message: 'Proprietário atualizado e vinculado ao restaurante.',
+        });
+      }
+
+      // If already a separate user, update their credentials directly
+      const updates = {};
+      if (email) {
+        updates.email = cleanEmail;
+        updates.email_confirm = true;
+      }
+      if (password) updates.password = password;
+
+      if (Object.keys(updates).length > 0) {
+        const { data: updated, error: updErr } = await adminClient.auth.admin.updateUserById(targetUserId, updates);
+        if (updErr) return res.status(400).json({ error: updErr.message });
+      }
+
+      if (cleanEmail) {
+        await adminClient.from('restaurants').update({ email: cleanEmail }).eq('id', restaurant_id);
+      }
+
+      return res.status(200).json({
+        success: true,
+        owner_id: targetUserId,
+        email: cleanEmail || rest.email,
+        message: 'Credenciais atualizadas com sucesso.',
+      });
+    }
+
+    // 5. Default: Update user
     if (!user_id) {
       return res.status(400).json({ error: 'user_id é obrigatório' });
     }
 
     const updates = {};
-    if (email) updates.email = email.trim().toLowerCase();
+    if (email) {
+      updates.email = email.trim().toLowerCase();
+      updates.email_confirm = true;
+    }
     if (password) updates.password = password;
 
     const { data: updated, error: updErr } = await adminClient.auth.admin.updateUserById(user_id, updates);

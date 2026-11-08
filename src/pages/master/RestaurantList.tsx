@@ -10,6 +10,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
+import { getApiUrl } from '@/lib/api';
 import { createNotification } from '@/hooks/useNotifications';
 import SuspendRestaurantDialog from '@/components/master/SuspendRestaurantDialog';
 
@@ -39,7 +40,7 @@ export default function RestaurantList() {
   const [saving, setSaving] = useState(false);
   const { data: restaurants = [], isLoading } = useMasterRestaurants();
   const queryClient = useQueryClient();
-  const { user } = useAuth();
+  const { user, session: authSession } = useAuth();
 
   // Edit modal
   const [editRestaurant, setEditRestaurant] = useState<any>(null);
@@ -277,31 +278,97 @@ export default function RestaurantList() {
 
   // UPDATE OWNER CREDENTIALS
   const handleUpdateCredentials = async () => {
-    if (!editRestaurant?.owner_id) { toast.error('Este restaurante não tem proprietário vinculado'); return; }
-    if (!ownerNewEmail && !ownerNewPassword) { toast.error('Informe o novo e-mail ou nova senha'); return; }
+    if (!editRestaurant) return;
+    if (!ownerNewEmail && !ownerNewPassword) {
+      toast.error('Informe o novo e-mail ou nova senha');
+      return;
+    }
     setCredentialsSaving(true);
     try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "https://ynxrtjvyeymbiifehenk.supabase.co";
-      const res = await fetch(`${supabaseUrl}/functions/v1/admin-update-user`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.session?.access_token}`,
-        },
-        body: JSON.stringify({
-          user_id: editRestaurant.owner_id,
-          email: ownerNewEmail || undefined,
-          password: ownerNewPassword || undefined,
-        }),
-      });
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.error || 'Erro ao atualizar credenciais');
-      toast.success('Credenciais do proprietário atualizadas!');
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token || authSession?.access_token;
+      if (!token) {
+        throw new Error('Sessão expirada. Faça login novamente.');
+      }
+
+      const cleanEmail = ownerNewEmail ? ownerNewEmail.trim().toLowerCase() : undefined;
+      let success = false;
+      let lastErrorMessage = '';
+      let resultData: any = null;
+
+      // 1. Primary: call /api/admin-update-user with set-restaurant-owner
+      try {
+        const res = await fetch(getApiUrl('/api/admin-update-user'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            action: 'set-restaurant-owner',
+            restaurant_id: editRestaurant.id,
+            user_id: editRestaurant.owner_id || undefined,
+            email: cleanEmail,
+            password: ownerNewPassword || undefined,
+            full_name: editRestaurant.name,
+          }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (res.ok && (json.success || json.user || json.owner_id)) {
+          success = true;
+          resultData = json;
+        } else if (json.error) {
+          lastErrorMessage = json.error;
+        }
+      } catch (apiErr: any) {
+        console.warn('[RestaurantList] Primary API update error:', apiErr);
+      }
+
+      // 2. Secondary fallback: Supabase Edge Function
+      if (!success) {
+        try {
+          const { data: fnData, error: fnErr } = await supabase.functions.invoke('admin-update-user', {
+            body: {
+              action: 'set-restaurant-owner',
+              restaurant_id: editRestaurant.id,
+              user_id: editRestaurant.owner_id || undefined,
+              email: cleanEmail,
+              password: ownerNewPassword || undefined,
+              full_name: editRestaurant.name,
+            },
+          });
+          if (!fnErr && (fnData?.success || fnData?.user || fnData?.owner_id)) {
+            success = true;
+            resultData = fnData;
+          } else if (fnErr) {
+            lastErrorMessage = fnErr.message || lastErrorMessage;
+          }
+        } catch (fnEx: any) {
+          console.warn('[RestaurantList] Edge function fallback error:', fnEx);
+          lastErrorMessage = fnEx.message || lastErrorMessage;
+        }
+      }
+
+      if (!success) {
+        throw new Error(lastErrorMessage || 'Erro ao atualizar credenciais do proprietário');
+      }
+
+      // Keep restaurant email and modal in sync
+      const newDisplayEmail = cleanEmail || resultData?.email || ownerEmail;
+      setOwnerEmail(newDisplayEmail);
       setOwnerNewEmail('');
       setOwnerNewPassword('');
-      if (ownerNewEmail) setOwnerEmail(ownerNewEmail);
-    } catch (err: any) { toast.error(err.message); }
-    finally { setCredentialsSaving(false); }
+      setEditForm((prev: any) => ({ ...prev, email: newDisplayEmail }));
+      if (resultData?.owner_id) {
+        setEditRestaurant((prev: any) => prev ? { ...prev, owner_id: resultData.owner_id, email: newDisplayEmail } : null);
+      }
+      invalidate();
+      toast.success('Credenciais do proprietário atualizadas com sucesso!');
+    } catch (err: any) {
+      toast.error(err.message || 'Erro ao atualizar credenciais');
+    } finally {
+      setCredentialsSaving(false);
+    }
   };
 
   const handleEdit = async () => {
@@ -817,28 +884,43 @@ export default function RestaurantList() {
             <div className="border-t border-border pt-4 mt-4">
               <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
                 🔑 Credenciais do Proprietário
-                {!editRestaurant?.owner_id && <span className="text-xs font-normal text-muted-foreground">(nenhum proprietário vinculado)</span>}
+                {!editRestaurant?.owner_id && <span className="text-xs font-normal text-amber-500">(nenhum proprietário vinculado)</span>}
               </h3>
-              {editRestaurant?.owner_id ? (
-                <div className="space-y-3">
-                  <div className="rounded-lg border border-input bg-muted/50 p-3">
-                    <p className="text-xs text-muted-foreground">E-mail atual</p>
-                    <p className="text-sm font-mono font-medium">{ownerEmail}</p>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div><label className="text-xs font-medium text-muted-foreground">Novo e-mail</label>
-                      <input type="email" placeholder="Deixe vazio para manter" value={ownerNewEmail} onChange={e => setOwnerNewEmail(e.target.value)} className={inputClass} /></div>
-                    <div><label className="text-xs font-medium text-muted-foreground">Nova senha</label>
-                      <input type="password" placeholder="Deixe vazio para manter" value={ownerNewPassword} onChange={e => setOwnerNewPassword(e.target.value)} className={inputClass} /></div>
-                  </div>
-                  <button onClick={handleUpdateCredentials} disabled={credentialsSaving || (!ownerNewEmail && !ownerNewPassword)}
-                    className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-primary text-primary px-4 py-2.5 text-sm font-semibold hover:bg-primary/10 disabled:opacity-50 transition-all">
-                    {credentialsSaving ? <><Loader2 className="h-4 w-4 animate-spin" /> Atualizando...</> : 'Atualizar Credenciais'}
-                  </button>
+              <div className="space-y-3">
+                <div className="rounded-lg border border-input bg-muted/50 p-3">
+                  <p className="text-xs text-muted-foreground">E-mail atual</p>
+                  <p className="text-sm font-mono font-medium">{ownerEmail || '(nenhum e-mail vinculado)'}</p>
                 </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">Este restaurante ainda não tem um proprietário vinculado. Crie a conta na seção de usuários ou recrie o restaurante com um proprietário.</p>
-              )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground">Novo e-mail</label>
+                    <input
+                      type="email"
+                      placeholder="Deixe vazio para manter"
+                      value={ownerNewEmail}
+                      onChange={e => setOwnerNewEmail(e.target.value)}
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground">Nova senha</label>
+                    <input
+                      type="password"
+                      placeholder="Deixe vazio para manter"
+                      value={ownerNewPassword}
+                      onChange={e => setOwnerNewPassword(e.target.value)}
+                      className={inputClass}
+                    />
+                  </div>
+                </div>
+                <button
+                  onClick={handleUpdateCredentials}
+                  disabled={credentialsSaving || (!ownerNewEmail && !ownerNewPassword)}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-primary text-primary px-4 py-2.5 text-sm font-semibold hover:bg-primary/10 disabled:opacity-50 transition-all"
+                >
+                  {credentialsSaving ? <><Loader2 className="h-4 w-4 animate-spin" /> Atualizando...</> : 'Atualizar Credenciais'}
+                </button>
+              </div>
             </div>
           </div>
         </DialogContent>
