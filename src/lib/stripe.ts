@@ -2,7 +2,8 @@ import { loadStripe, Stripe } from "@stripe/stripe-js";
 
 type StripeEnv = 'sandbox' | 'live';
 
-const clientToken = import.meta.env.VITE_PAYMENTS_CLIENT_TOKEN as string | undefined;
+const FALLBACK_PUBLISHABLE_KEY = 'pk_live_51TmD4v2f82yd0SgKbc7nZpWxI8xLxnIbq41yRytXwIVaRJjDVbxKj2FawHQz38a0KXzSvKReGRqhRSm6d6F66iay00T0En5OEO';
+const clientToken = (import.meta.env.VITE_PAYMENTS_CLIENT_TOKEN as string | undefined) || FALLBACK_PUBLISHABLE_KEY;
 
 function paymentsEnvironment(): StripeEnv {
   if (clientToken?.startsWith('pk_test_')) return 'sandbox';
