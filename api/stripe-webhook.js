@@ -147,15 +147,30 @@ export default async function handler(req, res) {
         const invoice = event.data.object;
         const restaurantId = invoice.subscription_details?.metadata?.restaurantId || invoice.metadata?.restaurantId;
         if (restaurantId) {
-          await admin.from('subscription_payments').insert({
-            restaurant_id: restaurantId,
-            amount: (invoice.amount_paid || 0) / 100,
-            status: 'approved',
-            payment_method: 'stripe',
-            paid_at: invoice.status_transitions?.paid_at
-              ? new Date(invoice.status_transitions.paid_at * 1000).toISOString()
-              : new Date().toISOString(),
-          });
+          // Busca a assinatura correspondente no banco
+          const { data: subRow } = await admin
+            .from('subscriptions')
+            .select('id')
+            .eq('restaurant_id', restaurantId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (subRow?.id) {
+            await admin.from('subscription_payments').insert({
+              restaurant_id: restaurantId,
+              subscription_id: subRow.id,
+              amount: (invoice.amount_paid || 0) / 100,
+              status: 'approved',
+              payment_method: 'stripe',
+              stripe_invoice_id: invoice.id || null,
+              stripe_payment_intent_id: invoice.payment_intent || null,
+              stripe_subscription_id: invoice.subscription || null,
+              paid_at: invoice.status_transitions?.paid_at
+                ? new Date(invoice.status_transitions.paid_at * 1000).toISOString()
+                : new Date().toISOString(),
+            });
+          }
         }
         break;
       }
